@@ -997,8 +997,16 @@ const globalCSS = `
     outline: none;
     resize: none;
     max-height: 100px;
+    min-height: 38px;
     transition: border .15s;
     line-height: 1.4;
+    overflow-y: auto;
+    overflow-x: hidden;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
   }
   .chat-input:focus { border-color: var(--orange); }
   .chat-send {
@@ -1048,6 +1056,53 @@ function Nav({ user, onLogout }) {
         {onLogout && <button className="btn-logout" onClick={onLogout}>Sign Out</button>}
       </div>
     </nav>
+  );
+}
+
+// ── GORILLA EMPTY STATE ─────────────────────────────────────────────────────
+function GorillaEmptyState({ text }) {
+  return (
+    <div className="empty">
+      <div className="empty-icon">
+        <svg width="72" height="72" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          {/* Body */}
+          <ellipse cx="50" cy="65" rx="22" ry="24" fill="#5a4a3a"/>
+          {/* Head */}
+          <ellipse cx="50" cy="36" rx="18" ry="17" fill="#5a4a3a"/>
+          {/* Face */}
+          <ellipse cx="50" cy="40" rx="13" ry="11" fill="#8a6a50"/>
+          {/* Eyes */}
+          <circle cx="44" cy="36" r="2.5" fill="#1a1a1a"/>
+          <circle cx="56" cy="36" r="2.5" fill="#1a1a1a"/>
+          <circle cx="45" cy="35.5" r="0.8" fill="white"/>
+          <circle cx="57" cy="35.5" r="0.8" fill="white"/>
+          {/* Nostrils */}
+          <ellipse cx="47" cy="41" rx="1.5" ry="1" fill="#3a2a1a"/>
+          <ellipse cx="53" cy="41" rx="1.5" ry="1" fill="#3a2a1a"/>
+          {/* Mouth - slight grin */}
+          <path d="M 44 45 Q 50 48 56 45" stroke="#3a2a1a" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+          {/* Ears */}
+          <ellipse cx="32" cy="36" rx="5" ry="6" fill="#5a4a3a"/>
+          <ellipse cx="68" cy="36" rx="5" ry="6" fill="#5a4a3a"/>
+          {/* Left arm holding barbell */}
+          <path d="M 28 58 Q 18 52 14 46" stroke="#5a4a3a" strokeWidth="10" strokeLinecap="round"/>
+          {/* Right arm holding barbell */}
+          <path d="M 72 58 Q 82 52 86 46" stroke="#5a4a3a" strokeWidth="10" strokeLinecap="round"/>
+          {/* Barbell bar */}
+          <rect x="10" y="43" width="80" height="6" rx="3" fill="#888"/>
+          {/* Left weight */}
+          <rect x="6" y="36" width="10" height="20" rx="3" fill="#e87020"/>
+          <rect x="2" y="38" width="7" height="16" rx="2" fill="#c05010"/>
+          {/* Right weight */}
+          <rect x="84" y="36" width="10" height="20" rx="3" fill="#e87020"/>
+          <rect x="91" y="38" width="7" height="16" rx="2" fill="#c05010"/>
+          {/* Legs */}
+          <ellipse cx="42" cy="87" rx="9" ry="7" fill="#4a3a2a"/>
+          <ellipse cx="58" cy="87" rx="9" ry="7" fill="#4a3a2a"/>
+        </svg>
+      </div>
+      <div className="empty-text">{text}</div>
+    </div>
   );
 }
 
@@ -1858,10 +1913,7 @@ function CoachView({ user, workouts, scores, setWorkouts, setScores, allUsers, c
             </div>
 
             {filtered.length === 0 ? (
-              <div className="empty">
-                <div className="empty-icon">🏋️</div>
-                <div className="empty-text">No workouts for this day. Add one above.</div>
-              </div>
+              <GorillaEmptyState text="No workouts for this day. Add one above." />
             ) : (
               <div className="workout-grid">
                 {filtered.map(w => (
@@ -1893,6 +1945,19 @@ function CoachView({ user, workouts, scores, setWorkouts, setScores, allUsers, c
             <div className="athlete-grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>
               {athletes.map(a => {
                 const aScores = scores.filter(s => s.userId === a.id);
+                const lastScore = aScores.length > 0 ? aScores.sort((x,y) => new Date(y.date) - new Date(x.date))[0] : null;
+                const lastActiveStr = lastScore
+                  ? (() => {
+                      const d = new Date(lastScore.date);
+                      const now = new Date();
+                      const diffDays = Math.floor((now - d) / 86400000);
+                      if (diffDays === 0) return "Active today";
+                      if (diffDays === 1) return "Active yesterday";
+                      if (diffDays < 7) return `Active ${diffDays}d ago`;
+                      if (diffDays < 30) return `Active ${Math.floor(diffDays/7)}w ago`;
+                      return `Active ${Math.floor(diffDays/30)}mo ago`;
+                    })()
+                  : "No activity yet";
                 return (
                   <div key={a.id} className="athlete-card" style={{ cursor: "default", textAlign: "left" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
@@ -1901,10 +1966,10 @@ function CoachView({ user, workouts, scores, setWorkouts, setScores, allUsers, c
                       </div>
                       <div>
                         <div style={{ fontWeight: 600, fontSize: 14 }}>{a.name}</div>
-                        <div style={{ fontSize: 11, color: "var(--sub)" }}>PIN: {a.pin}</div>
+                        <div style={{ fontSize: 11, color: "var(--sub)" }}>{lastActiveStr}</div>
                       </div>
                     </div>
-                    <div style={{ fontSize: 12, color: "var(--sub)" }}>{aScores.length} scores logged</div>
+                    <div style={{ fontSize: 12, color: "var(--sub)" }}>{aScores.length} score{aScores.length !== 1 ? "s" : ""} logged</div>
                   </div>
                 );
               })}
@@ -2057,10 +2122,7 @@ function AthleteView({ user, workouts, scores, setScores, allUsers, setAllUsers,
               <div className="section-title">{selectedDate === today ? "TODAY'S WORKOUTS" : formatDate(selectedDate).toUpperCase()}</div>
             </div>
             {filtered.length === 0 ? (
-              <div className="empty">
-                <div className="empty-icon">🏋️</div>
-                <div className="empty-text">No workouts programmed for this day.</div>
-              </div>
+              <GorillaEmptyState text="No workouts programmed for this day." />
             ) : (
               <div className="workout-grid">
                 {filtered.map(w => (
