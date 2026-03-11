@@ -10,7 +10,7 @@ const GORILLA_IMG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACAYAA
 
 // ── Seed Data ─────────────────────────────────────────────────────────────
 const USERS = [
-  { id: "coach1", name: "Coach Mike", role: "coach", pin: "1234", avatar: null, bio: "Head Coach @ TTD Arena" },
+  { id: "coach1", name: "Coach Damect", role: "coach", pin: "1234", avatar: null, bio: "Head Coach @ TTD Arena" },
   { id: "a1", name: "Sarah K.", role: "athlete", pin: "0001", email: "sarah@ttd.com", password: "pass1234", avatar: null, bio: "3 years CrossFit. Chasing PRs." },
   { id: "a2", name: "Jake T.", role: "athlete", pin: "0002", email: "jake@ttd.com", password: "pass1234", avatar: null, bio: "Former swimmer. Love metcons." },
   { id: "a3", name: "Maria L.", role: "athlete", pin: "0003", email: "maria@ttd.com", password: "pass1234", avatar: null, bio: "Scaled but consistent!" },
@@ -898,7 +898,7 @@ const globalCSS = `
   }
 
   /* CHAT */
-  .chat-layout { display: flex; height: calc(100vh - 112px); overflow: hidden; }
+  .chat-layout { display: flex; width: 100%; height: calc(100vh - 112px); overflow: hidden; }
   .chat-sidebar {
     width: 240px;
     flex-shrink: 0;
@@ -939,7 +939,7 @@ const globalCSS = `
   .chat-person-name { font-size: 13px; font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .chat-person-preview { font-size: 11px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .chat-unread-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--orange); flex-shrink: 0; }
-  .chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .chat-main { flex: 1; width: 100%; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
   .chat-header {
     padding: 14px 20px;
     border-bottom: 1px solid var(--border);
@@ -953,24 +953,26 @@ const globalCSS = `
   .chat-header-role { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--orange); }
   .chat-messages {
     flex: 1;
+    width: 100%;
     overflow-y: auto;
     padding: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
+    box-sizing: border-box;
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;
   }
-  .chat-bubble-wrap { display: flex; align-items: flex-end; gap: 8px; }
+  .chat-bubble-wrap { display: flex; align-items: flex-end; gap: 8px; width: 100%; box-sizing: border-box; margin-bottom: 12px; }
   .chat-bubble-wrap.mine { flex-direction: row-reverse; }
   .chat-bubble-av { width: 26px; height: 26px; border-radius: 50%; background: var(--border); display: flex; align-items: center; justify-content: center; font-size: 11px; font-family: 'Barlow Condensed', sans-serif; color: var(--sub); flex-shrink: 0; overflow: hidden; }
   .chat-bubble {
+    display: inline-block;
     max-width: 68%;
     padding: 9px 13px;
     border-radius: 14px;
     font-size: 13px;
     line-height: 1.5;
     word-break: break-word;
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
   }
   .chat-bubble.theirs { background: var(--card); border: 1px solid var(--border); color: var(--text); border-bottom-left-radius: 3px; }
   .chat-bubble.mine { background: var(--orange); color: #fff; border-bottom-right-radius: 3px; }
@@ -984,9 +986,11 @@ const globalCSS = `
     align-items: flex-end;
     background: var(--dark);
     flex-shrink: 0;
+    min-width: 0;
   }
   .chat-input {
     flex: 1;
+    min-width: 0;
     background: var(--card);
     border: 1px solid var(--border);
     border-radius: 20px;
@@ -1002,10 +1006,10 @@ const globalCSS = `
     line-height: 1.4;
     overflow-y: auto;
     overflow-x: hidden;
-    word-wrap: break-word;
-    white-space: pre-wrap;
-    display: block;
-    width: 100%;
+    word-break: break-word;
+    white-space: normal;
+    writing-mode: horizontal-tb;
+    direction: ltr;
     box-sizing: border-box;
   }
   .chat-input:focus { border-color: var(--orange); }
@@ -1065,38 +1069,25 @@ function GorillaEmptyState({ text }) {
     <div className="empty">
       <div className="empty-icon">
         <svg width="72" height="72" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-          {/* Body */}
           <ellipse cx="50" cy="65" rx="22" ry="24" fill="#5a4a3a"/>
-          {/* Head */}
           <ellipse cx="50" cy="36" rx="18" ry="17" fill="#5a4a3a"/>
-          {/* Face */}
           <ellipse cx="50" cy="40" rx="13" ry="11" fill="#8a6a50"/>
-          {/* Eyes */}
           <circle cx="44" cy="36" r="2.5" fill="#1a1a1a"/>
           <circle cx="56" cy="36" r="2.5" fill="#1a1a1a"/>
           <circle cx="45" cy="35.5" r="0.8" fill="white"/>
           <circle cx="57" cy="35.5" r="0.8" fill="white"/>
-          {/* Nostrils */}
           <ellipse cx="47" cy="41" rx="1.5" ry="1" fill="#3a2a1a"/>
           <ellipse cx="53" cy="41" rx="1.5" ry="1" fill="#3a2a1a"/>
-          {/* Mouth - slight grin */}
           <path d="M 44 45 Q 50 48 56 45" stroke="#3a2a1a" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
-          {/* Ears */}
           <ellipse cx="32" cy="36" rx="5" ry="6" fill="#5a4a3a"/>
           <ellipse cx="68" cy="36" rx="5" ry="6" fill="#5a4a3a"/>
-          {/* Left arm holding barbell */}
           <path d="M 28 58 Q 18 52 14 46" stroke="#5a4a3a" strokeWidth="10" strokeLinecap="round"/>
-          {/* Right arm holding barbell */}
           <path d="M 72 58 Q 82 52 86 46" stroke="#5a4a3a" strokeWidth="10" strokeLinecap="round"/>
-          {/* Barbell bar */}
           <rect x="10" y="43" width="80" height="6" rx="3" fill="#888"/>
-          {/* Left weight */}
           <rect x="6" y="36" width="10" height="20" rx="3" fill="#e87020"/>
           <rect x="2" y="38" width="7" height="16" rx="2" fill="#c05010"/>
-          {/* Right weight */}
           <rect x="84" y="36" width="10" height="20" rx="3" fill="#e87020"/>
           <rect x="91" y="38" width="7" height="16" rx="2" fill="#c05010"/>
-          {/* Legs */}
           <ellipse cx="42" cy="87" rx="9" ry="7" fill="#4a3a2a"/>
           <ellipse cx="58" cy="87" rx="9" ry="7" fill="#4a3a2a"/>
         </svg>
@@ -1578,11 +1569,8 @@ function ChatView({ currentUser, allUsers, messages, setMessages, setNotificatio
   // Selected conversation partner
   const [selectedId, setSelectedId] = useState(() => {
     if (!isCoach) return coachUser?.id || null;
-    // Coach: pick first athlete that has messages, else first athlete
-    const withMessages = athletes.find(a =>
-      messages.some(m => (m.fromId === a.id && m.toId === "coach1") || (m.fromId === "coach1" && m.toId === a.id))
-    );
-    return withMessages?.id || athletes[0]?.id || null;
+    // Coach: start with no selection (WhatsApp-style list view)
+    return null;
   });
 
   const [input, setInput] = useState("");
@@ -1716,8 +1704,26 @@ function ChatView({ currentUser, allUsers, messages, setMessages, setNotificatio
                     <div className="chat-bubble-av">
                       {sender?.avatar ? <img src={sender.avatar} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : ini(sender?.name || "?")}
                     </div>
-                    <div>
-                      <div className={`chat-bubble ${isMine ? "mine" : "theirs"}`}>{msg.text}</div>
+                    <div style={{ flex: 1, minWidth: 0, maxWidth: "calc(100% - 34px)" }}>
+                      <div style={{
+                        display: "block",
+                        maxWidth: "68%",
+                        padding: "9px 13px",
+                        borderRadius: 14,
+                        fontSize: 13,
+                        lineHeight: 1.5,
+                        wordBreak: "break-word",
+                        overflowWrap: "break-word",
+                        whiteSpace: "pre-wrap",
+                        writingMode: "horizontal-tb",
+                        textOrientation: "mixed",
+                        direction: "ltr",
+                        background: isMine ? "var(--orange)" : "var(--card)",
+                        color: isMine ? "#fff" : "var(--text)",
+                        border: isMine ? "none" : "1px solid var(--border)",
+                        borderBottomRightRadius: isMine ? 3 : 14,
+                        borderBottomLeftRadius: isMine ? 14 : 3,
+                      }}>{msg.text}</div>
                       <div className="chat-bubble-time">{formatMsgTime(msg.date)}</div>
                     </div>
                   </div>
@@ -1742,93 +1748,117 @@ function ChatView({ currentUser, allUsers, messages, setMessages, setNotificatio
     );
   }
 
-  // Coach view: sidebar with athletes + chat panel
-  return (
-    <div className="chat-layout">
-      <div className="chat-sidebar">
-        <div className="chat-sidebar-header">MESSAGES</div>
+  // Coach view: WhatsApp-style full-screen list, tap to open conversation
+  if (isCoach && selectedId) {
+    return (
+      <div className="chat-layout" style={{ height: "calc(100vh - 112px)" }}>
+        <div className="chat-main">
+          <div className="chat-header" style={{ cursor: "pointer" }} onClick={() => setSelectedId(null)}>
+            <div style={{ width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, color: "var(--orange)", marginRight: 4 }}>‹</div>
+            <div style={{ width: 38, height: 38, borderRadius: "50%", background: "var(--orange-dim)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontFamily: "Barlow Condensed", color: "var(--orange)", overflow: "hidden" }}>
+              {selectedUser?.avatar ? <img src={selectedUser.avatar} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : ini(selectedUser?.name || "?")}
+            </div>
+            <div>
+              <div className="chat-header-name">{selectedUser?.name}</div>
+              <div className="chat-header-role">Athlete</div>
+            </div>
+          </div>
+          <div className="chat-messages">
+            {convo.length === 0 && (
+              <div className="chat-empty">
+                <div style={{ fontSize: 40 }}>💬</div>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>No messages yet</div>
+                <div style={{ fontSize: 12 }}>Start a conversation with {selectedUser?.name}</div>
+              </div>
+            )}
+            {convo.map((msg, i) => {
+              const isMine = msg.fromId === currentUser.id;
+              const sender = allUsers.find(u => u.id === msg.fromId);
+              return (
+                <div key={msg.id}>
+                  {shouldShowDateDivider(convo, i) && (
+                    <div className="chat-date-divider">{formatDividerDate(msg.date)}</div>
+                  )}
+                  <div className={`chat-bubble-wrap ${isMine ? "mine" : ""}`}>
+                    <div className="chat-bubble-av">
+                      {sender?.avatar ? <img src={sender.avatar} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : ini(sender?.name || "?")}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0, maxWidth: "calc(100% - 34px)" }}>
+                      <div style={{
+                        display: "block",
+                        maxWidth: "68%",
+                        padding: "9px 13px",
+                        borderRadius: 14,
+                        fontSize: 13,
+                        lineHeight: 1.5,
+                        wordBreak: "break-word",
+                        overflowWrap: "break-word",
+                        whiteSpace: "pre-wrap",
+                        writingMode: "horizontal-tb",
+                        textOrientation: "mixed",
+                        direction: "ltr",
+                        background: isMine ? "var(--orange)" : "var(--card)",
+                        color: isMine ? "#fff" : "var(--text)",
+                        border: isMine ? "none" : "1px solid var(--border)",
+                        borderBottomRightRadius: isMine ? 3 : 14,
+                        borderBottomLeftRadius: isMine ? 14 : 3,
+                      }}>{msg.text}</div>
+                      <div className="chat-bubble-time">{formatMsgTime(msg.date)}</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            <div ref={messagesEndRef} />
+          </div>
+          <div className="chat-input-area">
+            <textarea
+              className="chat-input"
+              rows={1}
+              placeholder={`Reply to ${selectedUser?.name}...`}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+            />
+            <button className="chat-send" disabled={!input.trim()} onClick={sendMessage}>↑</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Coach: conversation list (WhatsApp-style)
+  if (isCoach) {
+    return (
+      <div style={{ background: "var(--dark)", minHeight: "calc(100vh - 112px)" }}>
+        <div style={{ padding: "16px 16px 8px", fontSize: 12, fontFamily: "Barlow Condensed", letterSpacing: 2, color: "var(--sub)" }}>MESSAGES</div>
         {athletes.map(a => {
           const last = getLastMessage(a.id);
           const unread = getUnreadCount(a.id);
+          const lastTime = last ? formatMsgTime(last.date) : null;
           return (
-            <div key={a.id} className={`chat-person ${selectedId === a.id ? "active" : ""}`} onClick={() => selectPerson(a.id)}>
-              <div className="chat-person-av">
+            <div key={a.id} onClick={() => selectPerson(a.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: "1px solid var(--border)", cursor: "pointer", position: "relative" }}>
+              <div style={{ width: 46, height: 46, borderRadius: "50%", background: "var(--orange-dim)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontFamily: "Barlow Condensed", color: "var(--orange)", flexShrink: 0, overflow: "hidden" }}>
                 {a.avatar ? <img src={a.avatar} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : ini(a.name)}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="chat-person-name">{a.name}</div>
-                {last && <div className="chat-person-preview">{last.fromId === currentUser.id ? "You: " : ""}{last.text}</div>}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{a.name}</div>
+                  {lastTime && <div style={{ fontSize: 11, color: "var(--sub)", flexShrink: 0 }}>{lastTime}</div>}
+                </div>
+                {last && <div style={{ fontSize: 12, color: "var(--sub)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}>{last.fromId === currentUser.id ? "You: " : ""}{last.text}</div>}
               </div>
-              {unread > 0 && <div className="chat-unread-dot" />}
+              {unread > 0 && <div style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--orange)", flexShrink: 0 }} />}
             </div>
           );
         })}
       </div>
-
-      <div className="chat-main">
-        {!selectedId ? (
-          <div className="chat-empty"><div style={{ fontSize: 40 }}>💬</div><div style={{ fontSize: 14 }}>Select an athlete to message</div></div>
-        ) : (
-          <>
-            <div className="chat-header">
-              <div style={{ width: 38, height: 38, borderRadius: "50%", background: "var(--orange-dim)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontFamily: "Barlow Condensed", color: "var(--orange)", overflow: "hidden" }}>
-                {selectedUser?.avatar ? <img src={selectedUser.avatar} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : ini(selectedUser?.name || "?")}
-              </div>
-              <div>
-                <div className="chat-header-name">{selectedUser?.name}</div>
-                <div className="chat-header-role">Athlete</div>
-              </div>
-            </div>
-            <div className="chat-messages">
-              {convo.length === 0 && (
-                <div className="chat-empty">
-                  <div style={{ fontSize: 40 }}>💬</div>
-                  <div style={{ fontSize: 14, fontWeight: 600 }}>No messages yet</div>
-                  <div style={{ fontSize: 12 }}>Start a conversation with {selectedUser?.name}</div>
-                </div>
-              )}
-              {convo.map((msg, i) => {
-                const isMine = msg.fromId === currentUser.id;
-                const sender = allUsers.find(u => u.id === msg.fromId);
-                return (
-                  <div key={msg.id}>
-                    {shouldShowDateDivider(convo, i) && (
-                      <div className="chat-date-divider">{formatDividerDate(msg.date)}</div>
-                    )}
-                    <div className={`chat-bubble-wrap ${isMine ? "mine" : ""}`}>
-                      <div className="chat-bubble-av">
-                        {sender?.avatar ? <img src={sender.avatar} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : ini(sender?.name || "?")}
-                      </div>
-                      <div>
-                        <div className={`chat-bubble ${isMine ? "mine" : "theirs"}`}>{msg.text}</div>
-                        <div className="chat-bubble-time">{formatMsgTime(msg.date)}</div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-              <div ref={messagesEndRef} />
-            </div>
-            <div className="chat-input-area">
-              <textarea
-                className="chat-input"
-                rows={1}
-                placeholder={`Reply to ${selectedUser?.name}...`}
-                value={input}
-                onChange={e => setInput(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-              />
-              <button className="chat-send" disabled={!input.trim()} onClick={sendMessage}>↑</button>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
+    );
+  }
 }
 
 // ── COACH VIEW ─────────────────────────────────────────────────────────────
-function CoachView({ user, workouts, scores, setWorkouts, setScores, allUsers, comments, setComments, notifications, setNotifications, onViewProfile, messages, setMessages }) {
+function CoachView({ user, workouts, scores, setWorkouts, setScores, allUsers, comments, setComments, notifications, setNotifications, onViewProfile, messages, setMessages, onLogout }) {
   const [tab, setTab] = useState("workouts");
   const [selectedDate, setSelectedDate] = useState(today);
   const [showModal, setShowModal] = useState(false);
@@ -1846,6 +1876,7 @@ function CoachView({ user, workouts, scores, setWorkouts, setScores, allUsers, c
   const filtered = workouts.filter(w => w.date === selectedDate);
   const athletes = allUsers.filter(u => u.role === "athlete");
   const totalScores = scores.length;
+  const unreadMsgs = messages.filter(m => m.toId === user.id && !m.read).length;
 
   function handleSaveWorkout(wod) {
     setWorkouts(ws => {
@@ -1861,160 +1892,210 @@ function CoachView({ user, workouts, scores, setWorkouts, setScores, allUsers, c
     setScores(ss => ss.filter(s => s.workoutId !== id));
   }
 
+  const navItems = [
+    { id: "workouts", label: "Workouts" },
+    { id: "chat", label: "Chat" },
+    { id: "athletes", label: "Athletes" },
+    { id: "overview", label: "Overview" },
+  ];
+
+  function CoachNavIcon({ id }) {
+    const s = { width: 20, height: 20, strokeWidth: 1.75, fill: "none", stroke: "currentColor", strokeLinecap: "round", strokeLinejoin: "round" };
+    if (id === "workouts") return (
+      <svg viewBox="0 0 24 24" style={s}><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M8 2v2M16 2v2M3 8h18"/><path d="M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01"/></svg>
+    );
+    if (id === "chat") return (
+      <svg viewBox="0 0 24 24" style={s}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    );
+    if (id === "athletes") return (
+      <svg viewBox="0 0 24 24" style={s}><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M21 21v-2a4 4 0 0 0-3-3.87"/></svg>
+    );
+    if (id === "overview") return (
+      <svg viewBox="0 0 24 24" style={s}><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    );
+    return null;
+  }
+
   return (
     <>
-      <div className="page-tabs">
-        {["workouts", "athletes", "overview", "messages"].map(t => {
-          const unread = t === "messages" ? messages.filter(m => m.toId === user.id && !m.read).length : 0;
-          return (
-            <button key={t} className={`page-tab ${tab === t ? "active" : ""}`} onClick={() => setTab(t)} style={{ position: "relative" }}>
-              {t}
-              {unread > 0 && <span style={{ position: "absolute", top: 6, right: 4, width: 7, height: 7, borderRadius: "50%", background: "var(--orange)", display: "block" }} />}
-            </button>
-          );
-        })}
-      </div>
+      <div className="athlete-page-wrap">
+        {tab === "chat" ? (
+          <ChatView
+            currentUser={user}
+            allUsers={allUsers}
+            messages={messages}
+            setMessages={setMessages}
+            setNotifications={setNotifications}
+          />
+        ) : (
+        <div className="main">
+          {tab === "workouts" && (
+            <>
+              <div className="date-nav">
+                <button className="date-arrow" onClick={() => setDateOffset(o => o - 1)} disabled={!canGoPast}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                </button>
+                <div className="date-strip-wrap">
+                  <div className="date-strip">
+                    {dates.map(d => (
+                      <button key={d} className={`date-pill ${d === selectedDate ? "active" : ""}`} onClick={() => setSelectedDate(d)}>
+                        {d === today ? "Today" : formatDate(d)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button className="date-arrow" onClick={() => setDateOffset(o => o + 1)} disabled={!canGoFuture}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                </button>
+              </div>
 
-      {tab === "messages" ? (
-        <ChatView
-          currentUser={user}
-          allUsers={allUsers}
-          messages={messages}
-          setMessages={setMessages}
-          setNotifications={setNotifications}
-        />
-      ) : (
-      <div className="main">
-        {tab === "workouts" && (
-          <>
-            <div className="date-nav">
-              <button className="date-arrow" onClick={() => setDateOffset(o => o - 1)} disabled={!canGoPast}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-              </button>
-              <div className="date-strip-wrap">
-                <div className="date-strip">
-                  {dates.map(d => (
-                    <button key={d} className={`date-pill ${d === selectedDate ? "active" : ""}`} onClick={() => setSelectedDate(d)}>
-                      {d === today ? "Today" : formatDate(d)}
-                    </button>
+              <div className="section-header">
+                <div className="section-title">{selectedDate === today ? "TODAY'S WORKOUTS" : formatDate(selectedDate).toUpperCase()}</div>
+                <button className="btn-primary" style={{ width: "auto", padding: "8px 14px", fontSize: 13, whiteSpace: "nowrap", flexShrink: 0 }} onClick={() => { setEditingWod(null); setShowModal(true); }}>
+                  + NEW WORKOUT
+                </button>
+              </div>
+
+              {filtered.length === 0 ? (
+                <GorillaEmptyState text="No workouts for this day. Add one above." />
+              ) : (
+                <div className="workout-grid">
+                  {filtered.map(w => (
+                    <WorkoutCard
+                      key={w.id}
+                      workout={w}
+                      scores={scores.filter(s => s.workoutId === w.id)}
+                      currentUser={user}
+                      allUsers={allUsers}
+                      onLogScore={() => {}}
+                      onEdit={wod => { setEditingWod(wod); setShowModal(true); }}
+                      onDelete={handleDeleteWorkout}
+                      comments={comments}
+                      setComments={setComments}
+                      setNotifications={setNotifications}
+                      onViewProfile={onViewProfile}
+                    />
                   ))}
                 </div>
+              )}
+            </>
+          )}
+
+          {tab === "athletes" && (
+            <>
+              <div className="section-header">
+                <div className="section-title">ALL ATHLETES</div>
               </div>
-              <button className="date-arrow" onClick={() => setDateOffset(o => o + 1)} disabled={!canGoFuture}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-              </button>
-            </div>
-
-            <div className="section-header">
-              <div className="section-title">{selectedDate === today ? "TODAY'S WORKOUTS" : formatDate(selectedDate).toUpperCase()}</div>
-              <button className="btn-primary" style={{ width: "auto", padding: "10px 20px", fontSize: 15 }} onClick={() => { setEditingWod(null); setShowModal(true); }}>
-                + NEW WORKOUT
-              </button>
-            </div>
-
-            {filtered.length === 0 ? (
-              <GorillaEmptyState text="No workouts for this day. Add one above." />
-            ) : (
-              <div className="workout-grid">
-                {filtered.map(w => (
-                  <WorkoutCard
-                    key={w.id}
-                    workout={w}
-                    scores={scores.filter(s => s.workoutId === w.id)}
-                    currentUser={user}
-                    allUsers={allUsers}
-                    onLogScore={() => {}}
-                    onEdit={wod => { setEditingWod(wod); setShowModal(true); }}
-                    onDelete={handleDeleteWorkout}
-                    comments={comments}
-                    setComments={setComments}
-                    setNotifications={setNotifications}
-                    onViewProfile={onViewProfile}
-                  />
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {tab === "athletes" && (
-          <>
-            <div className="section-header">
-              <div className="section-title">ALL ATHLETES</div>
-            </div>
-            <div className="athlete-grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>
-              {athletes.map(a => {
-                const aScores = scores.filter(s => s.userId === a.id);
-                const lastScore = aScores.length > 0 ? aScores.sort((x,y) => new Date(y.date) - new Date(x.date))[0] : null;
-                const lastActiveStr = lastScore
-                  ? (() => {
-                      const d = new Date(lastScore.date);
-                      const now = new Date();
-                      const diffDays = Math.floor((now - d) / 86400000);
-                      if (diffDays === 0) return "Active today";
-                      if (diffDays === 1) return "Active yesterday";
-                      if (diffDays < 7) return `Active ${diffDays}d ago`;
-                      if (diffDays < 30) return `Active ${Math.floor(diffDays/7)}w ago`;
-                      return `Active ${Math.floor(diffDays/30)}mo ago`;
-                    })()
-                  : "No activity yet";
-                return (
-                  <div key={a.id} className="athlete-card" style={{ cursor: "default", textAlign: "left" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                      <div className="athlete-avatar" style={{ background: "var(--orange-dim)", color: "var(--orange)" }}>
-                        {a.name.split(" ").map(n => n[0]).join("")}
+              <div className="athlete-grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>
+                {athletes.map(a => {
+                  const aScores = scores.filter(s => s.userId === a.id);
+                  const lastScore = aScores.length > 0 ? aScores.sort((x,y) => new Date(y.date) - new Date(x.date))[0] : null;
+                  const lastActiveStr = lastScore
+                    ? (() => {
+                        const d = new Date(lastScore.date);
+                        const now = new Date();
+                        const diffDays = Math.floor((now - d) / 86400000);
+                        if (diffDays === 0) return "Active today";
+                        if (diffDays === 1) return "Active yesterday";
+                        if (diffDays < 7) return `Active ${diffDays}d ago`;
+                        if (diffDays < 30) return `Active ${Math.floor(diffDays/7)}w ago`;
+                        return `Active ${Math.floor(diffDays/30)}mo ago`;
+                      })()
+                    : "No activity yet";
+                  return (
+                    <div key={a.id} className="athlete-card" style={{ cursor: "default", textAlign: "left" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                        <div className="athlete-avatar" style={{ background: "var(--orange-dim)", color: "var(--orange)" }}>
+                          {a.name.split(" ").map(n => n[0]).join("")}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: 14 }}>{a.name}</div>
+                          <div style={{ fontSize: 11, color: "var(--sub)" }}>{lastActiveStr}</div>
+                        </div>
                       </div>
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: 14 }}>{a.name}</div>
-                        <div style={{ fontSize: 11, color: "var(--sub)" }}>{lastActiveStr}</div>
-                      </div>
+                      <div style={{ fontSize: 12, color: "var(--sub)" }}>{aScores.length} score{aScores.length !== 1 ? "s" : ""} logged</div>
                     </div>
-                    <div style={{ fontSize: 12, color: "var(--sub)" }}>{aScores.length} score{aScores.length !== 1 ? "s" : ""} logged</div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {tab === "overview" && (
+            <>
+              <div className="section-title" style={{ marginBottom: 20 }}>GYM OVERVIEW</div>
+              <div className="stats-row">
+                <div className="stat-card">
+                  <div className="stat-val">{workouts.length}</div>
+                  <div className="stat-label">Total Workouts</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-val">{totalScores}</div>
+                  <div className="stat-label">Scores Logged</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-val">{athletes.length}</div>
+                  <div className="stat-label">Athletes</div>
+                </div>
+              </div>
+              <div className="section-title" style={{ marginBottom: 16 }}>RECENT SCORES</div>
+              {scores.slice(-8).reverse().map(s => {
+                const w = workouts.find(w => w.id === s.workoutId);
+                const a = allUsers.find(u => u.id === s.userId);
+                if (!w || !a) return null;
+                return (
+                  <div key={s.id} className="my-score-row">
+                    <div style={{ width: 36, height: 36, background: "var(--orange-dim)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "var(--orange)", fontFamily: "Barlow Condensed", flexShrink: 0 }}>
+                      {a.name.split(" ").map(n => n[0]).join("")}
+                    </div>
+                    <div className="my-score-wod">{a.name}</div>
+                    <div style={{ fontSize: 12, color: "var(--sub)", flex: 1 }}>{w.title}</div>
+                    <div className="my-score-val">{s.value}</div>
+                    <span className={`lb-rx ${s.rx ? "rx" : "sc"}`}>{s.rx ? "RX" : "SC"}</span>
                   </div>
                 );
               })}
-            </div>
-          </>
-        )}
-
-        {tab === "overview" && (
-          <>
-            <div className="section-title" style={{ marginBottom: 20 }}>GYM OVERVIEW</div>
-            <div className="stats-row">
-              <div className="stat-card">
-                <div className="stat-val">{workouts.length}</div>
-                <div className="stat-label">Total Workouts</div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-val">{totalScores}</div>
-                <div className="stat-label">Scores Logged</div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-val">{athletes.length}</div>
-                <div className="stat-label">Athletes</div>
-              </div>
-            </div>
-            <div className="section-title" style={{ marginBottom: 16 }}>RECENT SCORES</div>
-            {scores.slice(-8).reverse().map(s => {
-              const w = workouts.find(w => w.id === s.workoutId);
-              const a = allUsers.find(u => u.id === s.userId);
-              if (!w || !a) return null;
-              return (
-                <div key={s.id} className="my-score-row">
-                  <div style={{ width: 36, height: 36, background: "var(--orange-dim)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "var(--orange)", fontFamily: "Barlow Condensed", flexShrink: 0 }}>
-                    {a.name.split(" ").map(n => n[0]).join("")}
-                  </div>
-                  <div className="my-score-wod">{a.name}</div>
-                  <div style={{ fontSize: 12, color: "var(--sub)", flex: 1 }}>{w.title}</div>
-                  <div className="my-score-val">{s.value}</div>
-                  <span className={`lb-rx ${s.rx ? "rx" : "sc"}`}>{s.rx ? "RX" : "SC"}</span>
-                </div>
-              );
-            })}
-          </>
+              {onLogout && (
+                <button
+                  onClick={onLogout}
+                  style={{
+                    width: "100%", marginTop: 32, padding: "12px",
+                    background: "none", border: "1px solid var(--border)",
+                    borderRadius: 2, color: "var(--sub)", fontSize: 13,
+                    fontFamily: "Inter, sans-serif", cursor: "pointer",
+                    letterSpacing: "1px", transition: "all .15s",
+                  }}
+                  onMouseEnter={e => { e.target.style.borderColor = "var(--red)"; e.target.style.color = "var(--red)"; }}
+                  onMouseLeave={e => { e.target.style.borderColor = "var(--border)"; e.target.style.color = "var(--sub)"; }}
+                >
+                  Sign Out
+                </button>
+              )}
+            </>
+          )}
+        </div>
         )}
       </div>
-      )}
+
+      {/* Bottom Nav */}
+      <nav className="bottom-nav">
+        {navItems.map(item => {
+          const unread = item.id === "chat" ? unreadMsgs : 0;
+          return (
+            <button
+              key={item.id}
+              className={`bottom-nav-item ${tab === item.id ? "active" : ""}`}
+              onClick={() => setTab(item.id)}
+            >
+              {unread > 0 && <span className="bottom-nav-badge" />}
+              <div className="bottom-nav-icon-wrap">
+                <span className="bottom-nav-icon-svg"><CoachNavIcon id={item.id} /></span>
+              </div>
+              <span className="bottom-nav-label">{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
 
       {showModal && (
         <WorkoutModal
@@ -2374,9 +2455,9 @@ export default function App() {
   return (
     <div className="app">
       <StyleTag />
-      <Nav user={user} onLogout={user.role === "coach" ? () => setUser(null) : null} />
+      <Nav user={user} onLogout={null} />
       {user.role === "coach" ? (
-        <CoachView user={user} workouts={workouts} scores={scores} setWorkouts={setWorkouts} setScores={setScores} {...sharedProps} />
+        <CoachView user={user} workouts={workouts} scores={scores} setWorkouts={setWorkouts} setScores={setScores} onLogout={() => setUser(null)} {...sharedProps} />
       ) : (
         <AthleteView user={user} workouts={workouts} scores={scores} setScores={setScores} onLogout={() => setUser(null)} {...sharedProps} />
       )}
