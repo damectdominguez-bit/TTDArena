@@ -33,6 +33,7 @@ function addDays(date, days) {
 
 const today = formatDateKey(new Date());
 const yesterday = formatDateKey(addDays(new Date(), -1));
+const WORKOUT_ORDER_STORAGE_KEY = "ttd-workout-order-overrides";
 
 const INITIAL_WORKOUTS = [];
 
@@ -90,6 +91,87 @@ function avatarSrc(user) {
   return user?.avatar_url || user?.avatar || null;
 }
 
+function loadWorkoutOrderOverrides() {
+  if (typeof window === "undefined") return {};
+
+  try {
+    const raw = window.localStorage.getItem(WORKOUT_ORDER_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveWorkoutOrderOverrides(overrides) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(WORKOUT_ORDER_STORAGE_KEY, JSON.stringify(overrides));
+  } catch {
+    // Ignore storage failures; ordering still works for the current session.
+  }
+}
+
+function getWorkoutSortOrder(workout) {
+  const candidates = [
+    workout?.sortOrder,
+    workout?.sort_order,
+    workout?.display_order,
+    workout?.displayOrder,
+    workout?.order_index,
+    workout?.orderIndex,
+    workout?.position,
+  ];
+
+  for (const candidate of candidates) {
+    const value = Number(candidate);
+    if (Number.isFinite(value)) return value;
+  }
+
+  return null;
+}
+
+function applyWorkoutOrderOverrides(workouts) {
+  const overrides = loadWorkoutOrderOverrides();
+
+  return workouts.map((workout) => {
+    const override = overrides[workout.id];
+    if (!override || override.date !== (workout.date || workout.workout_date)) {
+      return workout;
+    }
+
+    return {
+      ...workout,
+      sortOrder: override.sortOrder,
+      display_order: override.sortOrder,
+      order_index: override.sortOrder,
+    };
+  });
+}
+
+function sortWorkouts(workouts) {
+  return [...workouts].sort((a, b) => {
+    const dateCompare = String(a.date || "").localeCompare(String(b.date || ""));
+    if (dateCompare !== 0) return dateCompare;
+
+    const aOrder = getWorkoutSortOrder(a);
+    const bOrder = getWorkoutSortOrder(b);
+
+    if (aOrder !== null && bOrder !== null && aOrder !== bOrder) {
+      return aOrder - bOrder;
+    }
+
+    if (aOrder !== null && bOrder === null) return -1;
+    if (aOrder === null && bOrder !== null) return 1;
+
+    const aCreated = new Date(a.created_at || 0).getTime();
+    const bCreated = new Date(b.created_at || 0).getTime();
+    if (aCreated !== bCreated) return aCreated - bCreated;
+
+    return String(a.id || "").localeCompare(String(b.id || ""));
+  });
+}
+
 function normalizeWorkout(workout) {
   if (!workout) return workout;
 
@@ -101,6 +183,7 @@ function normalizeWorkout(workout) {
     rounds: Math.max(1, parseInt(workout.rounds) || 1),
     totalScore: workout.totalScore ?? workout.total_score ?? false,
     notes: workout.notes || workout.coach_notes || "",
+    sortOrder: getWorkoutSortOrder(workout),
   };
 }
 
@@ -152,6 +235,7 @@ function buildWorkoutRow(workout) {
     rounds: Math.max(1, parseInt(workout.rounds) || 1),
     total_score: Boolean(workout.totalScore),
     coach_notes: workout.notes || "",
+    display_order: Number.isFinite(Number(workout.sortOrder)) ? Number(workout.sortOrder) : null,
   };
 }
 
@@ -2426,6 +2510,10 @@ function WorkoutCard({
   onLogScore,
   onEdit,
   onDelete,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp = false,
+  canMoveDown = false,
   comments,
   onPostComment,
   onViewProfile
@@ -2524,6 +2612,16 @@ function displayName(u) {
 
         {currentUser.role === "coach" && (
           <div style={{ display: "flex", gap: 8 }}>
+            {onMoveUp && onMoveDown ? (
+              <>
+                <button className="btn-sm" onClick={onMoveUp} disabled={!canMoveUp} style={{ opacity: canMoveUp ? 1 : 0.45 }}>
+                  Up
+                </button>
+                <button className="btn-sm" onClick={onMoveDown} disabled={!canMoveDown} style={{ opacity: canMoveDown ? 1 : 0.45 }}>
+                  Down
+                </button>
+              </>
+            ) : null}
             <button className="btn-sm" onClick={() => onEdit(workout)}>
               Edit
             </button>
@@ -2912,7 +3010,7 @@ function CoachView({ user, workouts, scores, setWorkouts, setScores, allUsers, c
   const canGoFuture = dateOffset < 30;
   const canGoPast = dateOffset > -6;
 
-  const filtered = workouts.filter(w => w.date === selectedDate);
+  const filtered = sortWorkouts(workouts.filter(w => w.date === selectedDate));
   const athletes = allUsers.filter(u => u.role === "athlete");
   const totalScores = scores.length;
   const unreadMsgs = messages.filter(m => m.toId === user.id && !m.read).length;
@@ -2946,14 +3044,19 @@ async function handleSaveWorkout(wod) {
     });
 
     setWorkouts((ws) =>
-      ws.map((w) => (w.id === wod.id ? { ...w, ...normalizedWorkout } : w))
+      sortWorkouts(ws.map((w) => (w.id === wod.id ? { ...w, ...normalizedWorkout } : w)))
     );
 
     return;
   }
 
 const insertRow = {
-  ...buildWorkoutRow(wod),
+  ...buildWorkoutRow({
+    ...wod,
+    sortOrder:
+      wod.sortOrder ??
+      (filtered.reduce((max, workout) => Math.max(max, getWorkoutSortOrder(workout) ?? -1), -1) + 1),
+  }),
   created_by: (await supabase.auth.getUser()).data.user.id,
 };
 
@@ -2978,7 +3081,65 @@ const insertRow = {
     ...data,
   });
 
-  setWorkouts((ws) => [normalizedWorkout, ...ws]);
+  setWorkouts((ws) => sortWorkouts([normalizedWorkout, ...ws]));
+}
+
+async function handleReorderWorkout(workoutId, direction) {
+  const ordered = filtered.map((workout, index) => ({
+    ...workout,
+    sortOrder: getWorkoutSortOrder(workout) ?? index,
+  }));
+  const currentIndex = ordered.findIndex((workout) => workout.id === workoutId);
+
+  if (currentIndex === -1) return;
+
+  const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+  if (targetIndex < 0 || targetIndex >= ordered.length) return;
+
+  const nextOrdered = [...ordered];
+  const currentWorkout = nextOrdered[currentIndex];
+  const targetWorkout = nextOrdered[targetIndex];
+
+  nextOrdered[currentIndex] = { ...targetWorkout, sortOrder: currentWorkout.sortOrder };
+  nextOrdered[targetIndex] = { ...currentWorkout, sortOrder: targetWorkout.sortOrder };
+
+  const nextById = new Map(nextOrdered.map((workout) => [workout.id, workout]));
+
+  setWorkouts((existing) =>
+    sortWorkouts(
+      existing.map((workout) =>
+        nextById.has(workout.id)
+          ? {
+              ...workout,
+              sortOrder: nextById.get(workout.id).sortOrder,
+              display_order: nextById.get(workout.id).sortOrder,
+            }
+          : workout
+      )
+    )
+  );
+
+  const overrides = loadWorkoutOrderOverrides();
+  nextOrdered.forEach((workout) => {
+    overrides[workout.id] = {
+      date: workout.date,
+      sortOrder: workout.sortOrder,
+    };
+  });
+  saveWorkoutOrderOverrides(overrides);
+
+  await Promise.all(
+    [nextOrdered[currentIndex], nextOrdered[targetIndex]].map(async (workout) => {
+      try {
+        await supabase
+          .from("workouts")
+          .update({ display_order: workout.sortOrder })
+          .eq("id", workout.id);
+      } catch {
+        // Local fallback still preserves the order on this device.
+      }
+    })
+  );
 }
 
 async function handleDeleteWorkout(id) {
@@ -3093,7 +3254,7 @@ if (!deletedWorkoutRows || deletedWorkoutRows.length === 0) {
                 <GorillaEmptyState text="No workouts programmed for today" />
               ) : (
                 <div className="workout-grid">
-                  {filtered.map(w => (
+                  {filtered.map((w, index) => (
                     <WorkoutCard
                       key={w.id}
                       workout={w}
@@ -3103,6 +3264,10 @@ if (!deletedWorkoutRows || deletedWorkoutRows.length === 0) {
                       onLogScore={() => {}}
                       onEdit={wod => { setEditingWod(wod); setShowModal(true); }}
                       onDelete={handleDeleteWorkout}
+                      onMoveUp={() => handleReorderWorkout(w.id, "up")}
+                      onMoveDown={() => handleReorderWorkout(w.id, "down")}
+                      canMoveUp={index > 0}
+                      canMoveDown={index < filtered.length - 1}
                       comments={comments}
                       onPostComment={onPostComment}
                       onViewProfile={onViewProfile}
@@ -3268,7 +3433,7 @@ function AthleteView({ user, workouts, scores, setScores, allUsers, setAllUsers,
   const canGoFuture = dateOffset < 30;
   const canGoPast = dateOffset > -6;
 
-  const filtered = workouts.filter(w => w.date === selectedDate);
+  const filtered = sortWorkouts(workouts.filter(w => w.date === selectedDate));
   const myScores = scores.filter(s => s.userId === user.id);
 
   async function handleSaveScore(score) {
@@ -3658,7 +3823,7 @@ export default function App() {
         }
 
         if (!workoutsResult.error && workoutsResult.data) {
-          setWorkouts(workoutsResult.data.map(normalizeWorkout));
+          setWorkouts(sortWorkouts(applyWorkoutOrderOverrides(workoutsResult.data.map(normalizeWorkout))));
         }
 
         if (!commentsResult.error && commentsResult.data) {
