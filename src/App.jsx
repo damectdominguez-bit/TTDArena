@@ -18,8 +18,21 @@ const USERS = [
   { id: "a4", name: "Carlos R.", role: "athlete", pin: "0004", email: "carlos@ttd.com", password: "pass1234", avatar_url: null, bio: "Always top 3." },
 ];
 
-const today = new Date().toISOString().split("T")[0];
-const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
+function formatDateKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function addDays(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+const today = formatDateKey(new Date());
+const yesterday = formatDateKey(addDays(new Date(), -1));
 
 const INITIAL_WORKOUTS = [];
 
@@ -2894,8 +2907,7 @@ function CoachView({ user, workouts, scores, setWorkouts, setScores, allUsers, c
   const [dateOffset, setDateOffset] = useState(0);
   const WINDOW = 7;
   const dates = Array.from({ length: WINDOW }, (_, i) => {
-    const d = new Date(Date.now() + (dateOffset + i) * 86400000);
-    return d.toISOString().split("T")[0];
+    return formatDateKey(addDays(new Date(), dateOffset + i));
   });
   const canGoFuture = dateOffset < 30;
   const canGoPast = dateOffset > -6;
@@ -3251,8 +3263,7 @@ function AthleteView({ user, workouts, scores, setScores, allUsers, setAllUsers,
   const [dateOffset, setDateOffset] = useState(0);
   const WINDOW = 7;
   const dates = Array.from({ length: WINDOW }, (_, i) => {
-    const d = new Date(Date.now() + (dateOffset + i) * 86400000);
-    return d.toISOString().split("T")[0];
+    return formatDateKey(addDays(new Date(), dateOffset + i));
   });
   const canGoFuture = dateOffset < 30;
   const canGoPast = dateOffset > -6;
