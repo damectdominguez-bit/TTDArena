@@ -3625,6 +3625,7 @@ export default function App() {
   const [notifications, setNotifications] = useState([]);
   const [messages, setMessages] = useState([]);
   const [appLoaded, setAppLoaded] = useState(false);
+  const [sessionReady, setSessionReady] = useState(false);
   const [showNotifs, setShowNotifs] = useState(false);
   const [profileView, setProfileView] = useState(null); // userId
   const notifRef = useRef();
@@ -3685,6 +3686,117 @@ export default function App() {
     loadAppData();
   }, []);
 
+  async function resolveSessionUser(authUser, usersList = allUsers) {
+    if (!authUser?.id) return null;
+
+    const coach = usersList.find((u) => u.role === "coach" && u.user_id === authUser.id);
+    if (coach) return normalizeUser(coach);
+
+    const existingUser = usersList.find((u) => u.user_id === authUser.id);
+    if (existingUser) return normalizeUser(existingUser);
+
+    const { data: existingAthlete, error: existingAthleteError } = await supabase
+      .from("athletes")
+      .select("*")
+      .eq("user_id", authUser.id)
+      .maybeSingle();
+
+    if (existingAthleteError) {
+      console.warn("SESSION USER LOAD ERROR:", existingAthleteError);
+      return null;
+    }
+
+    let athleteRow = existingAthlete;
+
+    if (!athleteRow) {
+      const pendingName =
+        authUser.user_metadata?.full_name ||
+        authUser.user_metadata?.name ||
+        authUser.email?.split("@")[0] ||
+        "Athlete";
+      const pendingGender = normalizeGenderValue(authUser.user_metadata?.gender);
+
+      const { data: insertedAthletes, error: athleteInsertError } = await insertAthleteProfile({
+        user_id: authUser.id,
+        full_name: pendingName,
+        role: "athlete",
+        gender: pendingGender,
+      });
+
+      if (athleteInsertError) {
+        console.warn("SESSION USER CREATE ERROR:", athleteInsertError);
+        return null;
+      }
+
+      athleteRow = insertedAthletes?.[0];
+    }
+
+    if (!athleteRow) return null;
+
+    const normalizedUser = normalizeUser(athleteRow);
+    setAllUsers((current) => {
+      if (current.some((u) => u.id === normalizedUser.id || u.user_id === normalizedUser.user_id)) {
+        return current;
+      }
+      return [...current, normalizedUser];
+    });
+    return normalizedUser;
+  }
+
+  useEffect(() => {
+    if (!appLoaded) return undefined;
+
+    let active = true;
+
+    async function restoreSession() {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const sessionUser = data.session?.user;
+
+        if (!active) return;
+
+        if (!sessionUser) {
+          setUser(null);
+          setSessionReady(true);
+          return;
+        }
+
+        const resolvedUser = await resolveSessionUser(sessionUser, allUsers);
+        if (!active) return;
+
+        setUser(resolvedUser);
+      } finally {
+        if (active) setSessionReady(true);
+      }
+    }
+
+    restoreSession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!active) return;
+
+      if (event === "SIGNED_OUT" || !session?.user) {
+        setUser(null);
+        setProfileView(null);
+        setSessionReady(true);
+        return;
+      }
+
+      const resolvedUser = await resolveSessionUser(session.user, allUsers);
+      if (!active) return;
+
+      setUser(resolvedUser);
+      setSessionReady(true);
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, [appLoaded, allUsers]);
+
   useEffect(() => {
     const h = (e) => {
       if (notifRef.current && !notifRef.current.contains(e.target)) {
@@ -3707,6 +3819,12 @@ export default function App() {
     // sync in case avatar/bio updated
     const fresh = normalizeUser(allUsers.find((x) => x.id === u.id) || u);
     setUser(fresh);
+  }
+
+  async function handleLogout() {
+    setProfileView(null);
+    await supabase.auth.signOut();
+    setUser(null);
   }
 
   async function createNotification({ userId, text }) {
@@ -3828,7 +3946,7 @@ export default function App() {
     }
   }
 
-  if (!appLoaded) {
+  if (!appLoaded || !sessionReady) {
     return (
       <div className="app">
         <StyleTag />
@@ -3900,7 +4018,7 @@ export default function App() {
           scores={scores}
           setWorkouts={setWorkouts}
           setScores={setScores}
-          onLogout={() => setUser(null)}
+          onLogout={handleLogout}
           {...sharedProps}
         />
       ) : (
@@ -3909,7 +4027,7 @@ export default function App() {
           workouts={workouts}
           scores={scores}
           setScores={setScores}
-          onLogout={() => setUser(null)}
+          onLogout={handleLogout}
           {...sharedProps}
         />
       )}
