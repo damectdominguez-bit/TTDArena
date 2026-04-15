@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { signIn, signUp, supabase } from "./lib/supabase";
 
 // ── Fonts ──────────────────────────────────────────────────────────────────
 const fontLink = document.createElement("link");
@@ -10,54 +11,17 @@ const GORILLA_IMG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABAAAAAQACAYAA
 
 // ── Seed Data ─────────────────────────────────────────────────────────────
 const USERS = [
-  { id: "coach1", name: "Coach Damect", role: "coach", pin: "1234", avatar: null, bio: "Head Coach @ TTD Arena" },
-  { id: "a1", name: "Sarah K.", role: "athlete", pin: "0001", email: "sarah@ttd.com", password: "pass1234", avatar: null, bio: "3 years CrossFit. Chasing PRs." },
-  { id: "a2", name: "Jake T.", role: "athlete", pin: "0002", email: "jake@ttd.com", password: "pass1234", avatar: null, bio: "Former swimmer. Love metcons." },
-  { id: "a3", name: "Maria L.", role: "athlete", pin: "0003", email: "maria@ttd.com", password: "pass1234", avatar: null, bio: "Scaled but consistent!" },
-  { id: "a4", name: "Carlos R.", role: "athlete", pin: "0004", email: "carlos@ttd.com", password: "pass1234", avatar: null, bio: "Always top 3." },
+  { id: "coach1", name: "Coach Damect", role: "coach", pin: "1234", avatar_url: null, bio: "Head Coach @ TTD Arena" },
+  { id: "a1", name: "Sarah K.", role: "athlete", pin: "0001", email: "sarah@ttd.com", password: "pass1234", avatar_url: null, bio: "3 years CrossFit. Chasing PRs." },
+  { id: "a2", name: "Jake T.", role: "athlete", pin: "0002", email: "jake@ttd.com", password: "pass1234", avatar_url: null, bio: "Former swimmer. Love metcons." },
+  { id: "a3", name: "Maria L.", role: "athlete", pin: "0003", email: "maria@ttd.com", password: "pass1234", avatar_url: null, bio: "Scaled but consistent!" },
+  { id: "a4", name: "Carlos R.", role: "athlete", pin: "0004", email: "carlos@ttd.com", password: "pass1234", avatar_url: null, bio: "Always top 3." },
 ];
 
 const today = new Date().toISOString().split("T")[0];
 const yesterday = new Date(Date.now() - 86400000).toISOString().split("T")[0];
 
-const INITIAL_WORKOUTS = [
-  {
-    id: "w1",
-    date: today,
-    title: "FRAN",
-    type: "For Time",
-    scoreType: "time",
-    rounds: 1,
-    totalScore: false,
-    description: "21-15-9\nThrusters (95/65 lb)\nPull-ups",
-    notes: "Scale thrusters to 75/55 if needed. Kipping pull-ups allowed.",
-    createdBy: "coach1",
-  },
-  {
-    id: "w2",
-    date: today,
-    title: "SHOULDER PRESS",
-    type: "Strength",
-    scoreType: "weight",
-    rounds: 1,
-    totalScore: false,
-    description: "5×5 Strict Press\nBuild to heavy 5-rep max",
-    notes: "Rest 2-3 min between sets. Log your heaviest set.",
-    createdBy: "coach1",
-  },
-  {
-    id: "w3",
-    date: yesterday,
-    title: "CINDY",
-    type: "AMRAP",
-    scoreType: "roundsreps",
-    rounds: 1,
-    totalScore: false,
-    description: "AMRAP 20 min:\n5 Pull-ups\n10 Push-ups\n15 Air Squats",
-    notes: "Score = total rounds + extra reps.",
-    createdBy: "coach1",
-  },
-];
+const INITIAL_WORKOUTS = [];
 
 const INITIAL_SCORES = [
   { id: "s1", workoutId: "w1", userId: "a1", value: "3:42", rx: true, notes: "Felt great!" },
@@ -81,6 +45,191 @@ function formatDate(dateStr) {
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
+}
+
+function normalizeUser(user) {
+  if (!user) return user;
+
+  const name =
+    user.name ||
+    user.full_name ||
+    [user.first_name, user.last_name].filter(Boolean).join(" ").trim() ||
+    "Unknown";
+
+  return {
+    ...user,
+    name,
+    full_name: user.full_name || name,
+    gender: normalizeGenderValue(user.gender || user.sex || user.user_metadata?.gender),
+    avatar_url: user.avatar_url || user.avatar || null,
+    bio: user.bio || "",
+  };
+}
+
+function normalizeGenderValue(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (["male", "man", "men", "m"].includes(normalized)) return "male";
+  if (["female", "woman", "women", "f"].includes(normalized)) return "female";
+  return "";
+}
+
+function avatarSrc(user) {
+  return user?.avatar_url || user?.avatar || null;
+}
+
+function normalizeWorkout(workout) {
+  if (!workout) return workout;
+
+  return {
+    ...workout,
+    date: workout.date || workout.workout_date,
+    type: workout.type || workout.workout_type || "For Time",
+    scoreType: workout.scoreType || workout.score_type || "time",
+    rounds: Math.max(1, parseInt(workout.rounds) || 1),
+    totalScore: workout.totalScore ?? workout.total_score ?? false,
+    notes: workout.notes || workout.coach_notes || "",
+  };
+}
+
+function formatDisplayName(user) {
+  const raw =
+    [user?.name, user?.last_name].filter(Boolean).join(" ") ||
+    user?.full_name ||
+    "Unknown";
+
+  return raw.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+async function insertAthleteProfile(profile) {
+  let nextProfile = { ...profile };
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("athletes")
+      .insert([nextProfile])
+      .select();
+
+    if (!error) {
+      return { data, insertedProfile: nextProfile };
+    }
+
+    const missingColumnMatch = error.message?.match(/column ["']?([a-zA-Z0-9_]+)["']? does not exist/i);
+
+    if (!missingColumnMatch) {
+      return { error, insertedProfile: nextProfile };
+    }
+
+    const missingColumn = missingColumnMatch[1];
+    if (!(missingColumn in nextProfile)) {
+      return { error, insertedProfile: nextProfile };
+    }
+
+    const { [missingColumn]: _removed, ...rest } = nextProfile;
+    nextProfile = rest;
+  }
+}
+
+function buildWorkoutRow(workout) {
+  return {
+    title: workout.title,
+    description: workout.description,
+    workout_date: workout.date,
+    workout_type: workout.type,
+    score_type: workout.scoreType,
+    rounds: Math.max(1, parseInt(workout.rounds) || 1),
+    total_score: Boolean(workout.totalScore),
+    coach_notes: workout.notes || "",
+  };
+}
+
+async function persistWorkoutMutation(queryFactory, row) {
+  let nextRow = { ...row };
+
+  while (true) {
+    const { data, error } = await queryFactory(nextRow);
+
+    if (!error) {
+      return { data, persistedRow: nextRow };
+    }
+
+    const missingColumnMatch = error.message?.match(/column ["']?([a-zA-Z0-9_]+)["']? does not exist/i);
+
+    if (!missingColumnMatch) {
+      return { error, persistedRow: nextRow };
+    }
+
+    const missingColumn = missingColumnMatch[1];
+    if (!(missingColumn in nextRow)) {
+      return { error, persistedRow: nextRow };
+    }
+
+    const { [missingColumn]: _removed, ...rest } = nextRow;
+    nextRow = rest;
+  }
+}
+
+function normalizeScore(score) {
+  if (!score) return score;
+
+  const value = score.value ?? score.score ?? "";
+  const roundValues =
+    score.roundValues ||
+    score.round_values ||
+    (value && !Array.isArray(score.round_values) ? [String(value)] : []);
+
+  return {
+    ...score,
+    userId: score.userId || score.user_id,
+    user_id: score.user_id || score.userId,
+    workoutId: score.workoutId || score.workout_id,
+    workout_id: score.workout_id || score.workoutId,
+    value,
+    score: value,
+    roundValues,
+    round_values: roundValues,
+    rx: score.rx ?? true,
+    notes: score.notes || "",
+    date: score.date || score.created_at || new Date().toISOString(),
+  };
+}
+
+function normalizeComment(comment) {
+  if (!comment) return comment;
+
+  return {
+    ...comment,
+    scoreId: comment.scoreId || comment.score_id,
+    score_id: comment.score_id || comment.scoreId,
+    authorId: comment.authorId || comment.author_id,
+    author_id: comment.author_id || comment.authorId,
+    date: comment.date || comment.created_at || new Date().toISOString(),
+  };
+}
+
+function normalizeNotification(notification) {
+  if (!notification) return notification;
+
+  return {
+    ...notification,
+    userId: notification.userId || notification.user_id,
+    user_id: notification.user_id || notification.userId,
+    read: notification.read ?? false,
+    date: notification.date || notification.created_at || new Date().toISOString(),
+  };
+}
+
+function normalizeMessage(message) {
+  if (!message) return message;
+
+  return {
+    ...message,
+    fromId: message.fromId || message.from_id,
+    from_id: message.from_id || message.fromId,
+    toId: message.toId || message.to_id,
+    to_id: message.to_id || message.toId,
+    read: message.read ?? false,
+    date: message.date || message.created_at || new Date().toISOString(),
+  };
 }
 
 function relTime(d) {
@@ -116,12 +265,21 @@ function scorePlaceholder(type) {
 
 function getRank(scores, scoreType) {
   return [...scores].sort((a, b) => {
+    const aValue = a.value ?? a.score ?? "";
+    const bValue = b.value ?? b.score ?? "";
+    const aScaledRank = a.rx === false ? 1 : 0;
+    const bScaledRank = b.rx === false ? 1 : 0;
+
+    if (aScaledRank !== bScaledRank) {
+      return aScaledRank - bScaledRank;
+    }
+
     if (scoreType === "time") {
       const toSec = (v) => {
         const parts = v.split(":").map(Number);
         return parts.length === 2 ? parts[0] * 60 + parts[1] : Number(v);
       };
-      return toSec(a.value) - toSec(b.value);
+      return toSec(aValue) - toSec(bValue);
     }
     if (scoreType === "text" || scoreType === "noscore") return 0;
     if (scoreType === "roundsreps") {
@@ -129,10 +287,10 @@ function getRank(scores, scoreType) {
         const parts = v.toString().split("+").map(Number);
         return (parts[0] || 0) * 1000 + (parts[1] || 0);
       };
-      return toNum(b.value) - toNum(a.value);
+      return toNum(bValue) - toNum(aValue);
     }
-    const aNum = parseFloat(a.value.toString().replace("+", ".")) || 0;
-    const bNum = parseFloat(b.value.toString().replace("+", ".")) || 0;
+    const aNum = parseFloat(aValue.toString().replace("+", ".")) || 0;
+    const bNum = parseFloat(bValue.toString().replace("+", ".")) || 0;
     return bNum - aNum;
   });
 }
@@ -540,42 +698,179 @@ const globalCSS = `
 
   /* LEADERBOARD */
   .leaderboard { margin-top: 16px; }
-  .lb-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 14px;
-    border-radius: 2px;
-    transition: background .1s;
+  .leaderboard-group + .leaderboard-group {
+    margin-top: 18px;
   }
-  .lb-row:hover { background: var(--dark); }
-  .lb-rank {
+  .leaderboard-group-title {
     font-family: 'Barlow Condensed', sans-serif;
-    font-size: 20px;
-    color: var(--sub);
-    width: 28px;
-    flex-shrink: 0;
+    font-size: 16px;
+    letter-spacing: 2px;
+    color: #d4d0ca;
+    font-weight: 600;
+    margin: 0 0 8px;
     text-align: center;
   }
-  .lb-rank.gold { color: #f5c542; }
-  .lb-rank.silver { color: #b0b8c1; }
-  .lb-rank.bronze { color: #cd7f32; }
-  .lb-name { flex: 1; font-size: 14px; font-weight: 500; }
-  .lb-score {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--text);
-  }
-  .lb-rx {
-    font-size: 10px;
+  .leaderboard-group-sub {
+    font-size: 11px;
+    color: var(--sub);
     letter-spacing: 1px;
-    padding: 2px 6px;
-    border-radius: 2px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    text-align: center;
   }
-  .lb-rx.rx { background: var(--green-dim); color: var(--green); }
-  .lb-rx.sc { background: #ff5c0011; color: var(--orange); }
-  .lb-me { background: var(--green-dim) !important; border-left: 2px solid var(--green); }
+  .lb-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 12px;
+  margin-top: 8px;
+  border: 1px solid #1f1f1f;
+  border-radius: 10px;
+  background: #111;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  border-radius: 999px;
+  background: #fff;
+}
+
+  .lb-row:hover {
+  background: #151515;
+  border-color: #2a2a2a;
+}
+  .lb-row.clickable { cursor: pointer; }
+  .lb-row.clickable:active {
+    transform: translateY(1px);
+  }
+
+.lb-rank {
+  min-width: 22px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.45);
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.lb-rank.gold { color: #f5c542; }
+.lb-rank.silver { color: #b0b8c1; }
+.lb-rank.bronze { color: #cd7f32; }
+
+.lb-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lb-sub {
+  font-size: 11px;
+  color: var(--sub);
+  line-height: 1;
+  min-height: 11px;
+}
+
+.lb-user-meta {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+  min-width: 0;
+  flex: 1;
+  height: 34px;
+}
+
+.lb-score-pill {
+  min-width: 96px;
+  padding: 9px 14px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.10);
+  text-align: center;
+  font-weight: 800;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--text);
+}
+
+  .lb-comment-btn {
+  font-size: 11px;
+  color: rgba(255,255,255,0.42);
+  padding: 0;
+  background: transparent;
+  border: none;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.lb-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+  height: 34px;
+}
+
+.lb-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.lb-row .avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.lb-rank {
+  width: 28px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--sub);
+  flex-shrink: 0;
+}
+
+.lb-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.lb-comment-btn {
+  font-size: 12px;
+  color: var(--sub);
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
+.lb-me {
+  background: var(--green-dim) !important;
+  border-left: 2px solid var(--green);
+}
 
   /* MODAL */
   .modal-overlay {
@@ -625,6 +920,132 @@ const globalCSS = `
     display: flex;
     gap: 10px;
     justify-content: flex-end;
+  }
+  .score-detail-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+  .score-detail-avatar {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: var(--orange-dim);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    color: var(--orange);
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+  .score-detail-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .score-detail-name {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.15;
+  }
+  .score-detail-sub {
+    font-size: 11px;
+    color: var(--sub);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-top: 4px;
+  }
+  .score-detail-card {
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));
+    padding: 16px;
+    margin-bottom: 18px;
+  }
+  .score-detail-card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .score-detail-value {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 36px;
+    letter-spacing: 1px;
+    color: var(--text);
+    line-height: 1;
+  }
+  .score-detail-rx {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .score-detail-rx.scaled {
+    color: #ffbf8d;
+    border-color: rgba(255, 92, 0, 0.25);
+    background: rgba(255, 92, 0, 0.08);
+  }
+  .score-detail-rx.rx {
+    color: #9ff2c5;
+    border-color: rgba(0, 232, 122, 0.2);
+    background: rgba(0, 232, 122, 0.08);
+  }
+  .score-detail-meta {
+    display: grid;
+    gap: 10px;
+  }
+  .score-detail-label {
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--sub);
+    margin-bottom: 4px;
+  }
+  .score-detail-text {
+    font-size: 14px;
+    line-height: 1.45;
+    color: var(--text);
+  }
+  .score-detail-rounds {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .score-round-pill {
+    padding: 8px 10px;
+    border-radius: 999px;
+    background: var(--dark);
+    border: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text);
+  }
+  .score-detail-actions {
+    display: flex;
+    justify-content: flex-start;
+    margin-top: 12px;
+  }
+  .score-detail-profile {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--sub);
+    border-radius: 999px;
+    padding: 8px 12px;
+    font-size: 11px;
+    cursor: pointer;
   }
 
   /* FORM */
@@ -726,11 +1147,57 @@ const globalCSS = `
   /* EMPTY STATE */
   .empty {
     text-align: center;
-    padding: 60px 24px;
+    padding: 28px 20px 20px;
     color: var(--sub);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
   }
-  .empty-icon { font-size: 48px; margin-bottom: 12px; }
-  .empty-text { font-size: 14px; }
+  .empty-icon { font-size: 48px; margin-bottom: 0; line-height: 0; }
+  .empty-text { font-size: 14px; line-height: 1.35; max-width: 260px; }
+  .empty-workouts {
+    width: min(100%, 460px);
+    margin: 40px auto 0;
+    padding: 22px 20px 20px;
+    border: 1px solid var(--line);
+    border-radius: 28px;
+    background:
+      radial-gradient(circle at top, rgba(255, 107, 0, 0.12), transparent 48%),
+      linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));
+    box-shadow: 0 22px 50px rgba(0,0,0,0.28);
+    gap: 4px;
+  }
+  .empty-workouts .empty-icon {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    margin-bottom: 0;
+  }
+  .empty-workouts-image {
+    width: min(100%, 270px);
+    height: auto;
+    display: block;
+  }
+  .empty-workouts .empty-text {
+    max-width: 300px;
+    font-size: 16px;
+    line-height: 1.25;
+    color: #d9d9d9;
+    margin-top: -2px;
+  }
+  @media (max-width: 640px) {
+    .empty-workouts {
+      margin-top: 28px;
+      padding: 18px 16px 16px;
+      border-radius: 24px;
+    }
+    .empty-workouts-image { width: min(100%, 220px); }
+    .empty-workouts .empty-text {
+      font-size: 15px;
+      max-width: 260px;
+    }
+  }
 
   /* COACH STATS */
   .stats-row {
@@ -1056,7 +1523,7 @@ function Nav({ user, onLogout }) {
         <div className="nav-logo">TTD <span>ARENA</span></div>
       </div>
       <div className="nav-right">
-        <span className="nav-athlete-name">{user.name}</span>
+        <span className="nav-athlete-name">{formatDisplayName(user)}</span>
         {onLogout && <button className="btn-logout" onClick={onLogout}>Sign Out</button>}
       </div>
     </nav>
@@ -1066,31 +1533,13 @@ function Nav({ user, onLogout }) {
 // ── GORILLA EMPTY STATE ─────────────────────────────────────────────────────
 function GorillaEmptyState({ text }) {
   return (
-    <div className="empty">
+    <div className="empty empty-workouts">
       <div className="empty-icon">
-        <svg width="72" height="72" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <ellipse cx="50" cy="65" rx="22" ry="24" fill="#5a4a3a"/>
-          <ellipse cx="50" cy="36" rx="18" ry="17" fill="#5a4a3a"/>
-          <ellipse cx="50" cy="40" rx="13" ry="11" fill="#8a6a50"/>
-          <circle cx="44" cy="36" r="2.5" fill="#1a1a1a"/>
-          <circle cx="56" cy="36" r="2.5" fill="#1a1a1a"/>
-          <circle cx="45" cy="35.5" r="0.8" fill="white"/>
-          <circle cx="57" cy="35.5" r="0.8" fill="white"/>
-          <ellipse cx="47" cy="41" rx="1.5" ry="1" fill="#3a2a1a"/>
-          <ellipse cx="53" cy="41" rx="1.5" ry="1" fill="#3a2a1a"/>
-          <path d="M 44 45 Q 50 48 56 45" stroke="#3a2a1a" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
-          <ellipse cx="32" cy="36" rx="5" ry="6" fill="#5a4a3a"/>
-          <ellipse cx="68" cy="36" rx="5" ry="6" fill="#5a4a3a"/>
-          <path d="M 28 58 Q 18 52 14 46" stroke="#5a4a3a" strokeWidth="10" strokeLinecap="round"/>
-          <path d="M 72 58 Q 82 52 86 46" stroke="#5a4a3a" strokeWidth="10" strokeLinecap="round"/>
-          <rect x="10" y="43" width="80" height="6" rx="3" fill="#888"/>
-          <rect x="6" y="36" width="10" height="20" rx="3" fill="#e87020"/>
-          <rect x="2" y="38" width="7" height="16" rx="2" fill="#c05010"/>
-          <rect x="84" y="36" width="10" height="20" rx="3" fill="#e87020"/>
-          <rect x="91" y="38" width="7" height="16" rx="2" fill="#c05010"/>
-          <ellipse cx="42" cy="87" rx="9" ry="7" fill="#4a3a2a"/>
-          <ellipse cx="58" cy="87" rx="9" ry="7" fill="#4a3a2a"/>
-        </svg>
+        <img
+          src="/no-workouts-gorilla.png"
+          alt="No workouts programmed"
+          className="empty-workouts-image"
+        />
       </div>
       <div className="empty-text">{text}</div>
     </div>
@@ -1102,91 +1551,438 @@ function LoginScreen({ onLogin, users, setUsers }) {
   const [tab, setTab] = useState("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [coachPin, setCoachPin] = useState("");
+  const [coachEmail, setCoachEmail] = useState("");
+  const [coachPassword, setCoachPassword] = useState("");
   const [isCoach, setIsCoach] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   // register fields
   const [rName, setRName] = useState("");
   const [rEmail, setREmail] = useState("");
   const [rPass, setRPass] = useState("");
   const [rPass2, setRPass2] = useState("");
+  const [rGender, setRGender] = useState("");
 
-  function handleLogin() {
-    if (isCoach) {
-      const coach = users.find(u => u.role === "coach" && u.pin === coachPin);
-      if (!coach) { setError("Invalid coach PIN."); return; }
+  async function handleLogin() {
+  setError("");
+  setNotice("");
+  setIsSubmitting(true);
+
+  if (isCoach) {
+    try {
+      const authUser = await signIn(coachEmail.trim(), coachPassword);
+
+      const coach = users.find((u) => u.role === "coach");
+
+      if (!coach) {
+        setError("Coach account exists in Supabase, but no local coach profile was found.");
+        return;
+      }
+
+      if (!coach.user_id) {
+        setError("Coach access is not configured correctly.");
+        await supabase.auth.signOut();
+        return;
+      }
+
+      if (!authUser || authUser.id !== coach.user_id) {
+        setError("This account is not authorized for coach access.");
+        await supabase.auth.signOut();
+        return;
+      }
+
       onLogin(coach);
-    } else {
-      const found = users.find(u => u.email && u.email.toLowerCase() === email.trim().toLowerCase() && u.password === password);
-      if (!found) { setError("Invalid email or password."); return; }
-      onLogin(found);
+    } catch (err) {
+      setError(err.message || "Invalid coach email or password.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  } else {
+    try {
+      const authUser = await signIn(email.trim(), password);
+
+      if (!authUser) {
+        setError("Login worked, but no auth user was returned.");
+        return;
+      }
+
+      const found = users.find((u) => u.user_id === authUser.id);
+
+      if (found) {
+        onLogin(found);
+        return;
+      }
+
+      const pendingName =
+        authUser.user_metadata?.full_name ||
+        authUser.user_metadata?.name ||
+        authUser.email?.split("@")[0] ||
+        "Athlete";
+      const pendingGender = normalizeGenderValue(authUser.user_metadata?.gender);
+
+      const { data: existingAthlete, error: existingAthleteError } = await supabase
+        .from("athletes")
+        .select("*")
+        .eq("user_id", authUser.id)
+        .maybeSingle();
+
+      if (existingAthleteError) {
+        setError(existingAthleteError.message || "Login worked, but your athlete profile could not be loaded.");
+        return;
+      }
+
+      let athleteRow = existingAthlete;
+
+      if (!athleteRow) {
+        const { data: insertedAthletes, error: athleteInsertError } = await insertAthleteProfile({
+          user_id: authUser.id,
+          full_name: pendingName,
+          role: "athlete",
+          gender: pendingGender,
+        });
+
+        if (athleteInsertError) {
+          setError(athleteInsertError.message || "Login worked, but your athlete profile could not be created.");
+          return;
+        }
+
+        athleteRow = insertedAthletes?.[0];
+      }
+
+      const newUser = normalizeUser(athleteRow || {
+        user_id: authUser.id,
+        full_name: pendingName,
+        role: "athlete",
+      });
+
+      setUsers((p) => [...p, newUser]);
+      onLogin(newUser);
+    } catch (err) {
+      setError(err.message || "Invalid email or password.");
+    } finally {
+      setIsSubmitting(false);
     }
   }
+}
 
-  function handleRegister() {
-    if (!rName.trim() || !rEmail.trim() || !rPass) { setError("All fields required"); return; }
-    if (rPass !== rPass2) { setError("Passwords don't match"); return; }
-    if (users.find(u => u.email && u.email.toLowerCase() === rEmail.trim().toLowerCase())) { setError("Email already in use"); return; }
-    const nu = { id: "u" + Date.now(), name: rName.trim(), email: rEmail.trim(), password: rPass, role: "athlete", avatar: null, bio: "" };
-    setUsers(p => [...p, nu]);
-    onLogin(nu);
+  async function handleRegister() {
+  const nextName = rName.trim();
+  const nextEmail = rEmail.trim().toLowerCase();
+  const coachEmailValue = users.find((u) => u.role === "coach")?.email?.trim().toLowerCase();
+
+  if (!nextName || !nextEmail || !rPass || !rGender) {
+    setError("All fields required");
+    return;
   }
+
+  if (rPass !== rPass2) {
+    setError("Passwords don't match");
+    return;
+  }
+
+  if (rPass.length < 8) {
+    setError("Password must be at least 8 characters.");
+    return;
+  }
+
+  if (coachEmailValue && nextEmail === coachEmailValue) {
+    setError("That email is reserved for the coach account.");
+    return;
+  }
+
+  try {
+    setError("");
+    setNotice("");
+    setIsSubmitting(true);
+
+    const signUpResult = await signUp(nextEmail, rPass, {
+      fullName: nextName,
+      gender: rGender,
+      emailRedirectTo: window.location.origin,
+    });
+    const authUser = signUpResult.user;
+
+    if (!authUser?.id) {
+      throw new Error("Could not create account.");
+    }
+
+    const verificationPending =
+      !signUpResult.session ||
+      (authUser.identities && authUser.identities.length === 0) ||
+      !authUser.email_confirmed_at;
+
+    if (verificationPending) {
+      setNotice("Check your email and verify your account before signing in.");
+      setTab("login");
+      setEmail(nextEmail);
+      setPassword("");
+      setRName("");
+      setREmail("");
+      setRPass("");
+      setRPass2("");
+      setRGender("");
+      return;
+    }
+
+    setNotice("Account created. Please sign in.");
+    setTab("login");
+    setEmail(nextEmail);
+    setPassword("");
+  } catch (err) {
+    setError(err.message || "Could not create account");
+  } finally {
+    setIsSubmitting(false);
+  }
+}
 
   return (
     <div className="login-wrap">
       <div className="login-bg" />
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 0, width: "100%", zIndex: 1 }}>
-        <img src={GORILLA_IMG} alt="TTD" style={{ width: 90, height: 90, objectFit: "contain", marginBottom: -4, filter: "invert(1)" }} />
-        <div className="login-logo">TTD <span>ARENA</span></div>
-      </div>
-      <div className="login-sub">Train · Track · Dominate</div>
-      <div className="login-card">
-        {error && <div className="error-msg">{error}</div>}
 
-        {tab === "login" ? (
-          <>
-            <div style={{ display: "flex", gap: 0, marginBottom: 16, border: "1px solid var(--border)", borderRadius: 2, overflow: "hidden" }}>
-              <button className={`login-tab ${!isCoach ? "active" : ""}`} style={{ flex: 1 }} onClick={() => { setIsCoach(false); setError(""); }}>Athlete</button>
-              <button className={`login-tab ${isCoach ? "active" : ""}`} style={{ flex: 1 }} onClick={() => { setIsCoach(true); setError(""); }}>Coach</button>
-            </div>
-            {isCoach ? (
-              <>
-                <label className="field-label">Coach PIN</label>
-                <input className="field-input" type="password" maxLength={4} placeholder="••••" value={coachPin} onChange={e => { setCoachPin(e.target.value); setError(""); }} onKeyDown={e => e.key === "Enter" && handleLogin()} />
-                <div style={{ marginBottom: 16, fontSize: 11, color: "var(--sub)" }}>Demo PIN: 1234</div>
-              </>
-            ) : (
-              <>
-                <label className="field-label">Email</label>
-                <input className="field-input" type="email" placeholder="you@email.com" value={email} onChange={e => { setEmail(e.target.value); setError(""); }} />
-                <label className="field-label">Password</label>
-                <input className="field-input" type="password" placeholder="••••••••" value={password} onChange={e => { setPassword(e.target.value); setError(""); }} onKeyDown={e => e.key === "Enter" && handleLogin()} />
-                <div style={{ marginBottom: 16, fontSize: 11, color: "var(--sub)" }}>Demo: sarah@ttd.com / pass1234</div>
-              </>
-            )}
-            <button className="btn-primary" onClick={handleLogin}>Enter →</button>
-            <div style={{ display: "flex", justifyContent: "center", marginTop: 20, gap: 6, fontSize: 12, color: "var(--sub)" }}>
-              <span>Don't have an account?</span>
-              <span style={{ color: "var(--orange)", cursor: "pointer", fontWeight: 600 }} onClick={() => { setTab("register"); setError(""); }}>Create Account</span>
-            </div>
-          </>
-        ) : (
-          <>
-            <label className="field-label">Full Name</label>
-            <input className="field-input" placeholder="Your name" value={rName} onChange={e => setRName(e.target.value)} />
-            <label className="field-label">Email</label>
-            <input className="field-input" type="email" placeholder="you@email.com" value={rEmail} onChange={e => setREmail(e.target.value)} />
-            <label className="field-label">Password</label>
-            <input className="field-input" type="password" placeholder="••••••••" value={rPass} onChange={e => setRPass(e.target.value)} />
-            <label className="field-label">Confirm Password</label>
-            <input className="field-input" type="password" placeholder="••••••••" value={rPass2} onChange={e => setRPass2(e.target.value)} onKeyDown={e => e.key === "Enter" && handleRegister()} />
-            <button className="btn-primary" onClick={handleRegister}>Create Account →</button>
-            <div style={{ display: "flex", justifyContent: "center", marginTop: 20, gap: 6, fontSize: 12, color: "var(--sub)" }}>
-              <span>Already have an account?</span>
-              <span style={{ color: "var(--orange)", cursor: "pointer", fontWeight: 600 }} onClick={() => { setTab("login"); setError(""); }}>Sign In</span>
-            </div>
-          </>
-        )}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          marginBottom: 0,
+          width: "100%",
+          zIndex: 1,
+        }}
+      >
+        <img
+          src={GORILLA_IMG}
+          alt="TTD"
+          style={{
+            width: 90,
+            height: 90,
+            objectFit: "contain",
+            marginBottom: -4,
+            filter: "invert(1)",
+          }}
+        />
+
+        <div className="login-logo">
+          TTD <span>ARENA</span>
+        </div>
+
+        <div className="login-sub">Train - Test - Dominate</div>
+
+        <div className="login-card">
+          {error && <div className="error-msg">{error}</div>}
+          {notice && <div style={{ color: "var(--green)", fontSize: 12, marginBottom: 12 }}>{notice}</div>}
+
+          {tab === "login" ? (
+            <>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 0,
+                  marginBottom: 16,
+                  border: "1px solid var(--border)",
+                  borderRadius: 2,
+                  overflow: "hidden",
+                }}
+              >
+                <button
+                  className={`login-tab ${!isCoach ? "active" : ""}`}
+                  style={{ flex: 1 }}
+                  onClick={() => {
+                    setIsCoach(false);
+                    setError("");
+                    setNotice("");
+                  }}
+                >
+                  Athlete
+                </button>
+
+                <button
+                  className={`login-tab ${isCoach ? "active" : ""}`}
+                  style={{ flex: 1 }}
+                  onClick={() => {
+                    setIsCoach(true);
+                    setError("");
+                    setNotice("");
+                  }}
+                >
+                  Coach
+                </button>
+              </div>
+
+              {isCoach ? (
+                <>
+                  <label className="field-label">Coach Email</label>
+                  <input
+                    className="field-input"
+                    type="email"
+                    placeholder="coach@email.com"
+                    value={coachEmail}
+                    onChange={(e) => {
+                      setCoachEmail(e.target.value);
+                      setError("");
+                      setNotice("");
+                    }}
+                  />
+
+                  <label className="field-label">Coach Password</label>
+                  <input
+                    className="field-input"
+                    type="password"
+                    placeholder="••••••••"
+                    value={coachPassword}
+                    onChange={(e) => {
+                      setCoachPassword(e.target.value);
+                      setError("");
+                      setNotice("");
+                    }}
+                    onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                  />
+                </>
+              ) : (
+                <>
+                  <label className="field-label">Email</label>
+                  <input
+                    className="field-input"
+                    type="email"
+                    placeholder="you@email.com"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      setError("");
+                      setNotice("");
+                    }}
+                  />
+
+                  <label className="field-label">Password</label>
+                  <input
+                    className="field-input"
+                    type="password"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      setError("");
+                      setNotice("");
+                    }}
+                    onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                  />
+
+                  <div style={{ marginBottom: 16, fontSize: 11, color: "var(--sub)" }}>
+                    Athlete accounts sign in here. Coach access is private.
+                  </div>
+                </>
+              )}
+
+              <button className="btn-primary" onClick={handleLogin} disabled={isSubmitting}>
+                Enter →
+              </button>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "center",
+                  marginTop: 20,
+                  gap: 6,
+                  fontSize: 12,
+                  color: "var(--sub)",
+                }}
+              >
+                <span>Don't have an account?</span>
+                <span
+                  style={{ color: "var(--orange)", cursor: "pointer", fontWeight: 600 }}
+                  onClick={() => {
+                    setTab("register");
+                    setIsCoach(false);
+                    setError("");
+                    setNotice("");
+                  }}
+                >
+                  Create Account
+                </span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ marginBottom: 16, fontSize: 11, color: "var(--sub)", textAlign: "center", letterSpacing: 1 }}>
+                ATHLETE ACCOUNT SIGN UP ONLY
+              </div>
+              <label className="field-label">Full Name</label>
+              <input
+                className="field-input"
+                placeholder="Your name"
+                value={rName}
+                onChange={(e) => { setRName(e.target.value); setError(""); setNotice(""); }}
+              />
+
+              <label className="field-label">Email</label>
+              <input
+                className="field-input"
+                type="email"
+                placeholder="you@email.com"
+                value={rEmail}
+                onChange={(e) => { setREmail(e.target.value); setError(""); setNotice(""); }}
+              />
+
+              <label className="field-label">Gender</label>
+              <select
+                className="field-select"
+                value={rGender}
+                onChange={(e) => { setRGender(e.target.value); setError(""); setNotice(""); }}
+              >
+                <option value="">Select gender</option>
+                <option value="female">Female</option>
+                <option value="male">Male</option>
+              </select>
+
+              <label className="field-label">Password</label>
+              <input
+                className="field-input"
+                type="password"
+                placeholder="••••••••"
+                value={rPass}
+                onChange={(e) => { setRPass(e.target.value); setError(""); setNotice(""); }}
+              />
+
+              <label className="field-label">Confirm Password</label>
+              <input
+                className="field-input"
+                type="password"
+                placeholder="••••••••"
+                value={rPass2}
+                onChange={(e) => { setRPass2(e.target.value); setError(""); setNotice(""); }}
+                onKeyDown={(e) => e.key === "Enter" && handleRegister()}
+              />
+
+              <button className="btn-primary" onClick={handleRegister} disabled={isSubmitting}>
+                Create Account →
+              </button>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "center",
+                  marginTop: 20,
+                  gap: 6,
+                  fontSize: 12,
+                  color: "var(--sub)",
+                }}
+              >
+                <span>Already have an account?</span>
+                <span
+                  style={{ color: "var(--orange)", cursor: "pointer", fontWeight: 600 }}
+                  onClick={() => {
+                    setTab("login");
+                    setError("");
+                    setNotice("");
+                  }}
+                >
+                  Sign In
+                </span>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1227,7 +2023,7 @@ function WorkoutModal({ workout, onSave, onClose }) {
       <div className="modal" style={{ maxWidth: 520 }}>
         <div className="modal-header">
           <div className="modal-title">{workout ? "EDIT WORKOUT" : "NEW WORKOUT"}</div>
-          <button className="modal-close" onClick={onClose}>×</button>
+          <button className="modal-close" onClick={onClose}>X</button>
         </div>
         <div className="modal-body">
           <div className="form-row">
@@ -1237,7 +2033,7 @@ function WorkoutModal({ workout, onSave, onClose }) {
           <div className="form-grid form-row">
             <div>
               <label className="field-label">Workout Name</label>
-              <input className="field-input" placeholder="FRAN, HELEN…" value={form.title} onChange={e => set("title", e.target.value.toUpperCase())} />
+              <input className="field-input" placeholder="FRAN, HELEN..." value={form.title} onChange={e => set("title", e.target.value.toUpperCase())} />
             </div>
             <div>
               <label className="field-label">Workout Type</label>
@@ -1294,7 +2090,7 @@ function WorkoutModal({ workout, onSave, onClose }) {
           </div>
           <div className="form-row">
             <label className="field-label">Coach Notes (optional)</label>
-            <input className="field-input" placeholder="Scaling options, tips…" value={form.notes} onChange={e => set("notes", e.target.value)} />
+            <input className="field-input" placeholder="Scaling options, tips..." value={form.notes} onChange={e => set("notes", e.target.value)} />
           </div>
         </div>
         <div className="modal-footer">
@@ -1352,7 +2148,7 @@ function ScoreModal({ workout, existingScore, athleteId, onSave, onClose }) {
 
   function handleSave() {
     if (!isNoScore && roundValues.every(v => !v.trim())) return;
-    const displayVal = isNoScore ? "—" : computeDisplayValue(roundValues, workout.scoreType, workout.totalScore);
+    const displayVal = isNoScore ? "-" : computeDisplayValue(roundValues, workout.scoreType, workout.totalScore);
     onSave({
       id: existingScore?.id || uid(),
       workoutId: workout.id,
@@ -1371,9 +2167,9 @@ function ScoreModal({ workout, existingScore, athleteId, onSave, onClose }) {
         <div className="modal-header">
           <div>
             <div className="modal-title">LOG SCORE</div>
-            <div style={{ fontSize: 12, color: "var(--sub)", marginTop: 2 }}>{workout.title} · <span style={{ color: "var(--orange)" }}>{workout.type}</span></div>
+            <div style={{ fontSize: 12, color: "var(--sub)", marginTop: 2 }}>{workout.title} - <span style={{ color: "var(--orange)" }}>{workout.type}</span></div>
           </div>
-          <button className="modal-close" onClick={onClose}>×</button>
+          <button className="modal-close" onClick={onClose}>X</button>
         </div>
         <div className="modal-body">
           {!isNoScore && (
@@ -1386,7 +2182,7 @@ function ScoreModal({ workout, existingScore, athleteId, onSave, onClose }) {
               ) : (
                 <div className="form-row">
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                    <label className="field-label" style={{ marginBottom: 0 }}>{rounds} Rounds · {scoreLabel(workout.scoreType)}</label>
+                    <label className="field-label" style={{ marginBottom: 0 }}>{rounds} Rounds - {scoreLabel(workout.scoreType)}</label>
                     <span style={{ fontSize: 11, color: "var(--sub)", letterSpacing: 1 }}>{workout.totalScore ? "TOTAL" : "BEST ROUND"} counts</span>
                   </div>
                   {Array.from({ length: rounds }, (_, i) => (
@@ -1406,7 +2202,7 @@ function ScoreModal({ workout, existingScore, athleteId, onSave, onClose }) {
                     <div style={{ marginTop: 8, padding: "8px 12px", background: "var(--dark)", borderRadius: 2, fontSize: 13, color: "var(--sub)" }}>
                       <span>Leaderboard score: </span>
                       <span style={{ color: "var(--green)", fontFamily: "JetBrains Mono", fontWeight: 600 }}>
-                        {computeDisplayValue(roundValues.map(v => v||"0"), workout.scoreType, workout.totalScore) || "—"}
+                        {computeDisplayValue(roundValues.map(v => v||"0"), workout.scoreType, workout.totalScore) || "-"}
                       </span>
                     </div>
                   )}
@@ -1436,25 +2232,240 @@ function ScoreModal({ workout, existingScore, athleteId, onSave, onClose }) {
 }
 
 // ── WORKOUT CARD ───────────────────────────────────────────────────────────
-function WorkoutCard({ workout, scores, currentUser, allUsers, onLogScore, onEdit, onDelete, comments, setComments, setNotifications, onViewProfile }) {
-  const [showLB, setShowLB] = useState(false);
-  const [openCmts, setOpenCmts] = useState({});
-  const [cmtInputs, setCmtInputs] = useState({});
-  const myScore = scores.find(s => s.userId === currentUser.id);
-  const ranked = getRank(scores, workout.scoreType);
+function ScoreDetailModal({
+  workout,
+  score,
+  athlete,
+  comments,
+  allUsers,
+  currentUser,
+  onClose,
+  onPostComment,
+  onViewProfile,
+}) {
+  const [input, setInput] = useState("");
 
-  function getUser(id) { return allUsers.find(u => u.id === id); }
-  function ini(name) { return (name || "?").split(" ").map(n => n[0]).join(""); }
+  useEffect(() => {
+    setInput("");
+  }, [score?.id]);
 
-  function postComment(scoreId, ownerId) {
-    const txt = (cmtInputs[scoreId] || "").trim();
-    if (!txt) return;
-    setComments(p => [...p, { id: uid(), scoreId, authorId: currentUser.id, text: txt, date: new Date().toISOString() }]);
-    setCmtInputs(p => ({ ...p, [scoreId]: "" }));
-    if (ownerId !== currentUser.id) {
-      setNotifications(p => [...p, { id: uid(), userId: ownerId, text: currentUser.name + " commented on your score", read: false, date: new Date().toISOString() }]);
+  function ini(name) {
+    return (name || "?")
+      .split(" ")
+      .map((n) => n[0])
+      .join("");
+  }
+
+  function getUser(id) {
+    return allUsers.find((u) => u.user_id === id || u.id === id);
+  }
+
+  async function submitComment() {
+    const text = input.trim();
+    if (!text || !score) return;
+
+    const saved = await onPostComment?.({
+      scoreId: score.id,
+      ownerId: score.user_id || score.userId,
+      authorId: currentUser.id,
+      text,
+    });
+
+    if (saved !== false) {
+      setInput("");
     }
   }
+
+  const scoreComments = comments.filter((c) => c.scoreId === score?.id);
+  const roundValues = (score?.roundValues || []).filter((value) => String(value || "").trim());
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 560 }}>
+        <div className="modal-header">
+          <div>
+            <div className="modal-title">SCORE DETAILS</div>
+            <div style={{ fontSize: 11, color: "var(--sub)", letterSpacing: 1, marginTop: 4 }}>
+              {workout?.title || "Workout"}
+            </div>
+          </div>
+          <button className="modal-close" onClick={onClose}>X</button>
+        </div>
+
+        <div className="modal-body">
+          <div className="score-detail-head">
+            <div className="score-detail-avatar">
+              {avatarSrc(athlete) ? (
+                <img src={avatarSrc(athlete)} alt={formatDisplayName(athlete)} />
+              ) : (
+                ini(formatDisplayName(athlete))
+              )}
+            </div>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div className="score-detail-name">{formatDisplayName(athlete)}</div>
+              <div className="score-detail-sub">{score?.date ? relTime(score.date) : "Logged score"}</div>
+            </div>
+          </div>
+
+          <div className="score-detail-card">
+            <div className="score-detail-card-top">
+              <div className="score-detail-value">
+                {workout?.scoreType !== "noscore" ? `${score?.score || "-"}${score?.rx ? "" : " s"}` : "Completed"}
+              </div>
+              <div className={`score-detail-rx ${score?.rx ? "rx" : "scaled"}`}>
+                {score?.rx ? "RX" : "Scaled"}
+              </div>
+            </div>
+
+            <div className="score-detail-meta">
+              {score?.notes ? (
+                <div>
+                  <div className="score-detail-label">Athlete Notes</div>
+                  <div className="score-detail-text">{score.notes}</div>
+                </div>
+              ) : null}
+
+              {roundValues.length > 0 ? (
+                <div>
+                  <div className="score-detail-label">Round Breakdown</div>
+                  <div className="score-detail-rounds">
+                    {roundValues.map((value, index) => (
+                      <div key={`${score.id}-round-${index}`} className="score-round-pill">
+                        Round {index + 1}: {value}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            {athlete && onViewProfile ? (
+              <div className="score-detail-actions">
+                <button
+                  className="score-detail-profile"
+                  onClick={() => {
+                    onClose();
+                    onViewProfile(athlete);
+                  }}
+                >
+                  View Athlete Profile
+                </button>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="comments-section" style={{ marginTop: 0, paddingTop: 0, borderTop: "none" }}>
+            <div className="section-title" style={{ fontSize: 18, marginBottom: 12 }}>COMMENTS</div>
+            <div className="comments-list">
+              {scoreComments.length === 0 ? (
+                <div className="empty-sm">No comments yet. Add the first one.</div>
+              ) : (
+                scoreComments.map((comment) => {
+                  const author = getUser(comment.authorId);
+                  return (
+                    <div key={comment.id} className="comment-item">
+                      <div className="comment-av">
+                        {avatarSrc(author) ? (
+                          <img src={avatarSrc(author)} alt={formatDisplayName(author)} />
+                        ) : (
+                          ini(formatDisplayName(author))
+                        )}
+                      </div>
+                      <div>
+                        <div className="comment-author">{formatDisplayName(author)}</div>
+                        <div className="comment-text">{comment.text}</div>
+                        <div className="comment-time">{relTime(comment.date)}</div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="comment-input-row">
+              <input
+                className="comment-input"
+                placeholder="Add a comment..."
+                value={input}
+                autoFocus
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    submitComment();
+                  }
+                }}
+              />
+              <button className="comment-post" onClick={submitComment}>Post</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WorkoutCard({
+  workout,
+  scores,
+  currentUser,
+  allUsers,
+  onLogScore,
+  onEdit,
+  onDelete,
+  comments,
+  onPostComment,
+  onViewProfile
+}) {
+  const [showLB, setShowLB] = useState(false);
+  const [selectedScore, setSelectedScore] = useState(null);
+
+  const myScore = scores.find(
+    (s) => s.user_id === currentUser.id && s.workout_id === workout.id
+  );
+
+  const ranked = getRank(scores, workout.scoreType);
+
+  function getUser(id) {
+  return allUsers.find((u) => u.user_id === id || u.id === id);
+}
+
+function displayName(u) {
+  return formatDisplayName(u);
+}
+
+  function ini(name) {
+    return (name || "?")
+      .split(" ")
+      .map((n) => n[0])
+      .join("");
+  }
+
+  function genderGroup(user) {
+    const gender = normalizeGenderValue(user?.gender);
+    if (gender === "female") return "women";
+    if (gender === "male") return "men";
+    return "open";
+  }
+
+  const leaderboardGroups = [
+    {
+      key: "men",
+      title: "Men",
+      scores: ranked.filter((score) => genderGroup(getUser(score.user_id || score.userId)) === "men"),
+    },
+    {
+      key: "women",
+      title: "Women",
+      scores: ranked.filter((score) => genderGroup(getUser(score.user_id || score.userId)) === "women"),
+    },
+    {
+      key: "open",
+      title: "Unassigned",
+      subtitle: "Athletes missing gender",
+      scores: ranked.filter((score) => genderGroup(getUser(score.user_id || score.userId)) === "open"),
+    },
+  ].filter((group) => group.scores.length > 0);
 
   return (
     <div className="workout-card">
@@ -1463,102 +2474,133 @@ function WorkoutCard({ workout, scores, currentUser, allUsers, onLogScore, onEdi
           <div className="wod-title">{workout.title}</div>
           <span className="wod-type-badge">{workout.type}</span>
         </div>
-
       </div>
+
       <div className="wod-body">
         <div className="wod-desc">{workout.description}</div>
       </div>
+
       <div className="wod-footer">
-        <button className="btn-sm" style={{ flex: '0 0 auto' }} onClick={() => setShowLB(v => !v)}>
+        <button
+          className="btn-sm"
+          style={{ flex: "0 0 auto" }}
+          onClick={() => setShowLB((v) => !v)}
+        >
           {showLB ? "Hide" : `${scores.length} Scores`}
         </button>
+
         {currentUser.role === "athlete" && (
           myScore ? (
-            <button className="btn-my-score" style={{ flex: 1 }} onClick={() => onLogScore(workout, myScore)}>
-              {workout.scoreType !== "noscore" ? myScore.value : "✓ Done"}
+            <button
+              className="btn-my-score"
+              style={{ flex: 1 }}
+              onClick={() => onLogScore(workout, myScore)}
+            >
+              {workout.scoreType !== "noscore" ? `${myScore.score}${myScore.rx ? "" : " s"}` : "Done"}
             </button>
           ) : (
-            <button className="btn-score" style={{ flex: 1 }} onClick={() => onLogScore(workout, null)}>
+            <button
+              className="btn-score"
+              style={{ flex: 1 }}
+              onClick={() => onLogScore(workout, null)}
+            >
               LOG SCORE
             </button>
           )
         )}
+
         {currentUser.role === "coach" && (
           <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn-sm" onClick={() => onEdit(workout)}>Edit</button>
-            <button className="btn-danger" onClick={() => onDelete(workout.id)}>Delete</button>
+            <button className="btn-sm" onClick={() => onEdit(workout)}>
+              Edit
+            </button>
+            <button className="btn-danger" onClick={() => onDelete(workout.id)}>
+              Delete
+            </button>
           </div>
         )}
       </div>
 
       {showLB && (
-        <div style={{ padding: "0 20px 16px" }}>
-          <div className="leaderboard">
-            {ranked.length === 0 ? (
-              <div style={{ fontSize: 13, color: "var(--sub)", padding: "8px 0" }}>No scores yet. Be first!</div>
-            ) : (
-              ranked.map((s, i) => {
-                const athlete = getUser(s.userId);
-                const isMe = s.userId === currentUser.id;
-                const rankClass = i === 0 ? "gold" : i === 1 ? "silver" : i === 2 ? "bronze" : "";
-                const scoreCmts = comments.filter(c => c.scoreId === s.id);
-                const cmtOpen = openCmts[s.id];
-                return (
-                  <div key={s.id}>
-                    <div className={`lb-row${isMe ? " lb-me" : ""}`}>
-                      <div className={`lb-rank ${rankClass}`}>{i + 1}</div>
-                      <div style={{ width: 30, height: 30, borderRadius: "50%", background: "var(--orange-dim)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontFamily: "Barlow Condensed", color: "var(--orange)", flexShrink: 0, overflow: "hidden", cursor: "pointer" }}
-                        onClick={() => onViewProfile(s.userId)}>
-                        {athlete?.avatar ? <img src={athlete.avatar} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : ini(athlete?.name || "?")}
-                      </div>
-                      <div className="lb-name" style={{ cursor: "pointer" }} onClick={() => onViewProfile(s.userId)}>{athlete?.name || "?"}{isMe ? " (you)" : ""}</div>
-                      <div className="lb-score">{workout.scoreType !== "noscore" ? s.value : <span style={{color:"var(--sub)",fontSize:12}}>✓</span>}</div>
-                      {(workout.rounds||1) > 1 && workout.scoreType !== "noscore" && <span style={{fontSize:10,color:"var(--sub)",letterSpacing:1}}>{workout.totalScore?"TOT":"BEST"}</span>}
-                      <span className={`lb-rx ${s.rx ? "rx" : "sc"}`}>{s.rx ? "RX" : "SC"}</span>
-                      <button className="btn-sm" style={{ fontSize: 11, padding: "3px 8px" }} onClick={() => setOpenCmts(p => ({ ...p, [s.id]: !p[s.id] }))}>
-                        💬 {scoreCmts.length > 0 ? scoreCmts.length : ""}
-                      </button>
-                      {isMe && currentUser.role !== "coach" && (
-                        <button className="btn-sm" style={{ fontSize: 11, padding: "3px 8px" }} onClick={() => onLogScore(workout, s)}>Edit</button>
-                      )}
-                    </div>
-                    {cmtOpen && (
-                      <div className="comments-section" style={{ paddingLeft: 40 }}>
-                        {scoreCmts.length === 0 && <div style={{ fontSize: 12, color: "var(--sub)", marginBottom: 8 }}>No comments yet.</div>}
-                        {scoreCmts.map(c => {
-                          const author = getUser(c.authorId);
-                          return (
-                            <div key={c.id} className="comment-item">
-                              <div className="comment-av">
-                                {author?.avatar ? <img src={author.avatar} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : ini(author?.name || "?")}
-                              </div>
-                              <div>
-                                <div className="comment-author">{author?.name}</div>
-                                <div className="comment-text">{c.text}</div>
-                                <div className="comment-time">{relTime(c.date)}</div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                        <div className="comment-input-row">
-                          <input className="comment-input" placeholder="Say something..." value={cmtInputs[s.id] || ""} onChange={e => setCmtInputs(p => ({ ...p, [s.id]: e.target.value }))} onKeyDown={e => e.key === "Enter" && postComment(s.id, s.userId)} />
-                          <button className="comment-post" onClick={() => postComment(s.id, s.userId)}>Post</button>
-                        </div>
-                      </div>
+  <div className="leaderboard">
+    {ranked.length === 0 ? (
+      <div className="empty-sm">No scores yet.</div>
+    ) : (
+      leaderboardGroups.map((group) => (
+        <div key={group.key} className="leaderboard-group">
+          <div className="leaderboard-group-title">{group.title}</div>
+          {group.subtitle ? <div className="leaderboard-group-sub">{group.subtitle}</div> : null}
+          {group.scores.map((s, i) => {
+            const u = getUser(s.user_id || s.userId);
+            const scoreComments = comments.filter((c) => c.scoreId === s.id);
+
+            return (
+              <div
+                key={s.id}
+                className="lb-row clickable"
+                onClick={() => setSelectedScore(s)}
+              >
+                <div
+                  className="lb-left"
+                  style={{ cursor: "pointer" }}
+                >
+                  <div className="lb-rank">#{i + 1}</div>
+                  <div className="avatar">
+                    {u?.avatar_url ? (
+                      <img src={u.avatar_url} alt={displayName(u)} className="avatar-img" />
+                    ) : (
+                      ini(displayName(u))
                     )}
                   </div>
-                );
-              })
-            )}
-          </div>
+                  <div className="lb-user-meta">
+                    <div className="lb-name">{displayName(u)}</div>
+                    <div className="lb-sub">{s.rx ? "RX" : "Scaled"}</div>
+                  </div>
+                </div>
+
+                <div className="lb-right">
+                  <div className="lb-score-pill">
+                    {workout.scoreType !== "noscore" ? `${s.score}${s.rx ? "" : " s"}` : "Completed"}
+                  </div>
+
+                  <button
+                    className="btn-link lb-comment-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedScore(s);
+                    }}
+                  >
+                    {scoreComments.length > 0 ? `Comments (${scoreComments.length})` : "Add comment"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
+      ))
+    )}
+  </div>
+)}
+
+      {selectedScore && (
+        <ScoreDetailModal
+          workout={workout}
+          score={selectedScore}
+          athlete={getUser(selectedScore.user_id || selectedScore.userId)}
+          comments={comments}
+          allUsers={allUsers}
+          currentUser={currentUser}
+          onClose={() => setSelectedScore(null)}
+          onPostComment={onPostComment}
+          onViewProfile={onViewProfile}
+        />
       )}
     </div>
   );
 }
 
 // ── CHAT VIEW ─────────────────────────────────────────────────────────────
-function ChatView({ currentUser, allUsers, messages, setMessages, setNotifications }) {
+function ChatView({ currentUser, allUsers, messages, onSendMessage, onMarkConversationRead }) {
   const isCoach = currentUser.role === "coach";
   const messagesEndRef = useRef(null);
 
@@ -1594,35 +2636,22 @@ function ChatView({ currentUser, allUsers, messages, setMessages, setNotificatio
     return convo[convo.length - 1] || null;
   }
 
-  function selectPerson(id) {
+  async function selectPerson(id) {
     setSelectedId(id);
-    // Mark messages from that person as read
-    setMessages(ms => ms.map(m =>
-      m.fromId === id && m.toId === currentUser.id ? { ...m, read: true } : m
-    ));
+    await onMarkConversationRead?.(currentUser.id, id);
   }
 
-  function sendMessage() {
+  async function sendMessage() {
     const text = input.trim();
     if (!text || !selectedId) return;
-    const msg = {
-      id: uid(),
+    const saved = await onSendMessage?.({
       fromId: currentUser.id,
       toId: selectedId,
       text,
-      date: new Date().toISOString(),
-      read: false,
-    };
-    setMessages(ms => [...ms, msg]);
-    // Notification for recipient
-    setNotifications(ns => [...ns, {
-      id: uid(),
-      userId: selectedId,
-      text: `${currentUser.name}: ${text.length > 40 ? text.slice(0, 40) + "…" : text}`,
-      read: false,
-      date: new Date().toISOString(),
-    }]);
-    setInput("");
+    });
+    if (saved !== false) {
+      setInput("");
+    }
   }
 
   // Scroll to bottom when convo changes
@@ -1633,11 +2662,9 @@ function ChatView({ currentUser, allUsers, messages, setMessages, setNotificatio
   // Mark as read on select
   useEffect(() => {
     if (selectedId) {
-      setMessages(ms => ms.map(m =>
-        m.fromId === selectedId && m.toId === currentUser.id ? { ...m, read: true } : m
-      ));
+      onMarkConversationRead?.(currentUser.id, selectedId);
     }
-  }, [selectedId]);
+  }, [currentUser.id, onMarkConversationRead, selectedId]);
 
   function ini(name) { return (name || "?").split(" ").map(n => n[0]).join(""); }
 
@@ -1677,10 +2704,10 @@ function ChatView({ currentUser, allUsers, messages, setMessages, setNotificatio
         <div className="chat-main">
           <div className="chat-header">
             <div style={{ width: 38, height: 38, borderRadius: "50%", background: "var(--orange-dim)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontFamily: "Barlow Condensed", color: "var(--orange)", overflow: "hidden" }}>
-              {coachUser?.avatar ? <img src={coachUser.avatar} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : ini(coachUser?.name || "Coach")}
+              {avatarSrc(coachUser) ? <img src={avatarSrc(coachUser)} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : ini(formatDisplayName(coachUser) || "Coach")}
             </div>
             <div>
-              <div className="chat-header-name">{coachUser?.name || "Coach"}</div>
+              <div className="chat-header-name">{formatDisplayName(coachUser) || "Coach"}</div>
               <div className="chat-header-role">Head Coach</div>
             </div>
           </div>
@@ -1702,7 +2729,7 @@ function ChatView({ currentUser, allUsers, messages, setMessages, setNotificatio
                   )}
                   <div className={`chat-bubble-wrap ${isMine ? "mine" : ""}`}>
                     <div className="chat-bubble-av">
-                      {sender?.avatar ? <img src={sender.avatar} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : ini(sender?.name || "?")}
+                      {avatarSrc(sender) ? <img src={avatarSrc(sender)} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : ini(formatDisplayName(sender))}
                     </div>
                     <div style={{ flex: 1, minWidth: 0, maxWidth: "calc(100% - 34px)" }}>
                       <div style={{
@@ -1741,7 +2768,7 @@ function ChatView({ currentUser, allUsers, messages, setMessages, setNotificatio
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
             />
-            <button className="chat-send" disabled={!input.trim()} onClick={sendMessage}>↑</button>
+            <button className="chat-send" disabled={!input.trim()} onClick={sendMessage}>Send</button>
           </div>
         </div>
       </div>
@@ -1756,19 +2783,19 @@ function ChatView({ currentUser, allUsers, messages, setMessages, setNotificatio
           <div className="chat-header" style={{ cursor: "pointer" }} onClick={() => setSelectedId(null)}>
             <div style={{ width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, color: "var(--orange)", marginRight: 4 }}>‹</div>
             <div style={{ width: 38, height: 38, borderRadius: "50%", background: "var(--orange-dim)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontFamily: "Barlow Condensed", color: "var(--orange)", overflow: "hidden" }}>
-              {selectedUser?.avatar ? <img src={selectedUser.avatar} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : ini(selectedUser?.name || "?")}
+              {avatarSrc(selectedUser) ? <img src={avatarSrc(selectedUser)} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : ini(formatDisplayName(selectedUser))}
             </div>
             <div>
-              <div className="chat-header-name">{selectedUser?.name}</div>
+              <div className="chat-header-name">{formatDisplayName(selectedUser)}</div>
               <div className="chat-header-role">Athlete</div>
             </div>
           </div>
           <div className="chat-messages">
             {convo.length === 0 && (
               <div className="chat-empty">
-                <div style={{ fontSize: 40 }}>💬</div>
+                <div style={{ fontSize: 40 }}>Chat</div>
                 <div style={{ fontSize: 14, fontWeight: 600 }}>No messages yet</div>
-                <div style={{ fontSize: 12 }}>Start a conversation with {selectedUser?.name}</div>
+                <div style={{ fontSize: 12 }}>Start a conversation with {formatDisplayName(selectedUser)}</div>
               </div>
             )}
             {convo.map((msg, i) => {
@@ -1781,7 +2808,7 @@ function ChatView({ currentUser, allUsers, messages, setMessages, setNotificatio
                   )}
                   <div className={`chat-bubble-wrap ${isMine ? "mine" : ""}`}>
                     <div className="chat-bubble-av">
-                      {sender?.avatar ? <img src={sender.avatar} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : ini(sender?.name || "?")}
+                      {avatarSrc(sender) ? <img src={avatarSrc(sender)} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : ini(formatDisplayName(sender))}
                     </div>
                     <div style={{ flex: 1, minWidth: 0, maxWidth: "calc(100% - 34px)" }}>
                       <div style={{
@@ -1815,12 +2842,12 @@ function ChatView({ currentUser, allUsers, messages, setMessages, setNotificatio
             <textarea
               className="chat-input"
               rows={1}
-              placeholder={`Reply to ${selectedUser?.name}...`}
+              placeholder={`Reply to ${formatDisplayName(selectedUser)}...`}
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
             />
-            <button className="chat-send" disabled={!input.trim()} onClick={sendMessage}>↑</button>
+            <button className="chat-send" disabled={!input.trim()} onClick={sendMessage}>Send</button>
           </div>
         </div>
       </div>
@@ -1839,11 +2866,11 @@ function ChatView({ currentUser, allUsers, messages, setMessages, setNotificatio
           return (
             <div key={a.id} onClick={() => selectPerson(a.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: "1px solid var(--border)", cursor: "pointer", position: "relative" }}>
               <div style={{ width: 46, height: 46, borderRadius: "50%", background: "var(--orange-dim)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontFamily: "Barlow Condensed", color: "var(--orange)", flexShrink: 0, overflow: "hidden" }}>
-                {a.avatar ? <img src={a.avatar} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : ini(a.name)}
+                {avatarSrc(a) ? <img src={avatarSrc(a)} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : ini(formatDisplayName(a))}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{a.name}</div>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{formatDisplayName(a)}</div>
                   {lastTime && <div style={{ fontSize: 11, color: "var(--sub)", flexShrink: 0 }}>{lastTime}</div>}
                 </div>
                 {last && <div style={{ fontSize: 12, color: "var(--sub)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}>{last.fromId === currentUser.id ? "You: " : ""}{last.text}</div>}
@@ -1858,7 +2885,7 @@ function ChatView({ currentUser, allUsers, messages, setMessages, setNotificatio
 }
 
 // ── COACH VIEW ─────────────────────────────────────────────────────────────
-function CoachView({ user, workouts, scores, setWorkouts, setScores, allUsers, comments, setComments, notifications, setNotifications, onViewProfile, messages, setMessages, onLogout }) {
+function CoachView({ user, workouts, scores, setWorkouts, setScores, allUsers, comments, notifications, onViewProfile, messages, onPostComment, onSendMessage, onMarkConversationRead, onLogout }) {
   const [tab, setTab] = useState("workouts");
   const [selectedDate, setSelectedDate] = useState(today);
   const [showModal, setShowModal] = useState(false);
@@ -1878,20 +2905,114 @@ function CoachView({ user, workouts, scores, setWorkouts, setScores, allUsers, c
   const totalScores = scores.length;
   const unreadMsgs = messages.filter(m => m.toId === user.id && !m.read).length;
 
-  function handleSaveWorkout(wod) {
-    setWorkouts(ws => {
-      const idx = ws.findIndex(w => w.id === wod.id);
-      if (idx >= 0) { const n = [...ws]; n[idx] = wod; return n; }
-      return [wod, ...ws];
+async function handleSaveWorkout(wod) {
+  const isRealUuid =
+    typeof wod.id === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(wod.id);
+
+  if (isRealUuid) {
+    const updateRow = buildWorkoutRow(wod);
+    const { error, persistedRow } = await persistWorkoutMutation(
+      (row) =>
+        supabase
+          .from("workouts")
+          .update(row)
+          .eq("id", wod.id),
+      updateRow
+    );
+
+    if (error) {
+      console.error("ERROR UPDATING WORKOUT:", error);
+      alert(`Workout did not save: ${error.message}`);
+      return;
+    }
+
+    const normalizedWorkout = normalizeWorkout({
+      ...wod,
+      ...persistedRow,
+      id: wod.id,
     });
+
+    setWorkouts((ws) =>
+      ws.map((w) => (w.id === wod.id ? { ...w, ...normalizedWorkout } : w))
+    );
+
+    return;
   }
 
-  function handleDeleteWorkout(id) {
-    if (!window.confirm("Delete this workout?")) return;
-    setWorkouts(ws => ws.filter(w => w.id !== id));
-    setScores(ss => ss.filter(s => s.workoutId !== id));
+const insertRow = {
+  ...buildWorkoutRow(wod),
+  created_by: (await supabase.auth.getUser()).data.user.id,
+};
+
+  const { data, error, persistedRow } = await persistWorkoutMutation(
+    (row) =>
+      supabase
+        .from("workouts")
+        .insert([row])
+        .select()
+        .single(),
+    insertRow
+  );
+
+  if (error) {
+    console.error("ERROR INSERTING WORKOUT:", error);
+    alert(`Workout did not save: ${error.message}`);
+    return;
   }
 
+  const normalizedWorkout = normalizeWorkout({
+    ...persistedRow,
+    ...data,
+  });
+
+  setWorkouts((ws) => [normalizedWorkout, ...ws]);
+}
+
+async function handleDeleteWorkout(id) {
+  if (!window.confirm("Delete this workout?")) return;
+
+  const isRealUuid =
+    typeof id === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+
+  if (!isRealUuid) {
+    setWorkouts((ws) => ws.filter((w) => w.id !== id));
+    setScores((ss) => ss.filter((s) => s.workout_id !== id));
+    return;
+  }
+
+  const { error: scoreDeleteError } = await supabase
+    .from("scores")
+    .delete()
+    .eq("workout_id", id);
+
+  if (scoreDeleteError) {
+    console.error("ERROR DELETING RELATED SCORES:", scoreDeleteError);
+    alert(`Could not delete related scores: ${scoreDeleteError.message}`);
+    return;
+  }
+
+const { data: deletedWorkoutRows, error: workoutDeleteError } = await supabase
+  .from("workouts")
+  .delete()
+  .eq("id", id)
+  .select();
+
+if (workoutDeleteError) {
+  console.error("ERROR DELETING WORKOUT:", workoutDeleteError);
+  alert(`Workout did not delete: ${workoutDeleteError.message}`);
+  return;
+}
+
+if (!deletedWorkoutRows || deletedWorkoutRows.length === 0) {
+  alert("Supabase did not delete any workout rows.");
+  return;
+}
+
+  setWorkouts((ws) => ws.filter((w) => w.id !== id));
+  setScores((ss) => ss.filter((s) => s.workout_id !== id));
+}
   const navItems = [
     { id: "workouts", label: "Workouts" },
     { id: "chat", label: "Chat" },
@@ -1924,8 +3045,8 @@ function CoachView({ user, workouts, scores, setWorkouts, setScores, allUsers, c
             currentUser={user}
             allUsers={allUsers}
             messages={messages}
-            setMessages={setMessages}
-            setNotifications={setNotifications}
+            onSendMessage={onSendMessage}
+            onMarkConversationRead={onMarkConversationRead}
           />
         ) : (
         <div className="main">
@@ -1957,22 +3078,21 @@ function CoachView({ user, workouts, scores, setWorkouts, setScores, allUsers, c
               </div>
 
               {filtered.length === 0 ? (
-                <GorillaEmptyState text="No workouts for this day. Add one above." />
+                <GorillaEmptyState text="No workouts programmed for today" />
               ) : (
                 <div className="workout-grid">
                   {filtered.map(w => (
                     <WorkoutCard
                       key={w.id}
                       workout={w}
-                      scores={scores.filter(s => s.workoutId === w.id)}
+                      scores={scores.filter(s => s.workout_id === w.id)}
                       currentUser={user}
                       allUsers={allUsers}
                       onLogScore={() => {}}
                       onEdit={wod => { setEditingWod(wod); setShowModal(true); }}
                       onDelete={handleDeleteWorkout}
                       comments={comments}
-                      setComments={setComments}
-                      setNotifications={setNotifications}
+                      onPostComment={onPostComment}
                       onViewProfile={onViewProfile}
                     />
                   ))}
@@ -1993,6 +3113,7 @@ function CoachView({ user, workouts, scores, setWorkouts, setScores, allUsers, c
                   const lastActiveStr = lastScore
                     ? (() => {
                         const d = new Date(lastScore.date);
+                        if (Number.isNaN(d.getTime())) return "No activity yet";
                         const now = new Date();
                         const diffDays = Math.floor((now - d) / 86400000);
                         if (diffDays === 0) return "Active today";
@@ -2005,11 +3126,13 @@ function CoachView({ user, workouts, scores, setWorkouts, setScores, allUsers, c
                   return (
                     <div key={a.id} className="athlete-card" style={{ cursor: "default", textAlign: "left" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                        <div className="athlete-avatar" style={{ background: "var(--orange-dim)", color: "var(--orange)" }}>
-                          {a.name.split(" ").map(n => n[0]).join("")}
+                        <div className="athlete-avatar" style={{ background: "var(--orange-dim)", color: "var(--orange)", overflow: "hidden" }}>
+                          {avatarSrc(a)
+                            ? <img src={avatarSrc(a)} alt={formatDisplayName(a)} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                            : formatDisplayName(a).split(" ").map(n => n[0]).join("")}
                         </div>
                         <div>
-                          <div style={{ fontWeight: 600, fontSize: 14 }}>{a.name}</div>
+                          <div style={{ fontWeight: 600, fontSize: 14 }}>{formatDisplayName(a)}</div>
                           <div style={{ fontSize: 11, color: "var(--sub)" }}>{lastActiveStr}</div>
                         </div>
                       </div>
@@ -2041,14 +3164,16 @@ function CoachView({ user, workouts, scores, setWorkouts, setScores, allUsers, c
               <div className="section-title" style={{ marginBottom: 16 }}>RECENT SCORES</div>
               {scores.slice(-8).reverse().map(s => {
                 const w = workouts.find(w => w.id === s.workoutId);
-                const a = allUsers.find(u => u.id === s.userId);
+                const a = allUsers.find(u => u.id === s.userId || u.user_id === s.userId);
                 if (!w || !a) return null;
                 return (
                   <div key={s.id} className="my-score-row">
-                    <div style={{ width: 36, height: 36, background: "var(--orange-dim)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "var(--orange)", fontFamily: "Barlow Condensed", flexShrink: 0 }}>
-                      {a.name.split(" ").map(n => n[0]).join("")}
+                    <div style={{ width: 36, height: 36, background: "var(--orange-dim)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "var(--orange)", fontFamily: "Barlow Condensed", flexShrink: 0, overflow: "hidden" }}>
+                      {avatarSrc(a)
+                        ? <img src={avatarSrc(a)} alt={formatDisplayName(a)} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        : formatDisplayName(a).split(" ").map(n => n[0]).join("")}
                     </div>
-                    <div className="my-score-wod">{a.name}</div>
+                    <div className="my-score-wod">{formatDisplayName(a)}</div>
                     <div style={{ fontSize: 12, color: "var(--sub)", flex: 1 }}>{w.title}</div>
                     <div className="my-score-val">{s.value}</div>
                     <span className={`lb-rx ${s.rx ? "rx" : "sc"}`}>{s.rx ? "RX" : "SC"}</span>
@@ -2109,13 +3234,13 @@ function CoachView({ user, workouts, scores, setWorkouts, setScores, allUsers, c
 }
 
 // ── ATHLETE VIEW ───────────────────────────────────────────────────────────
-function AthleteView({ user, workouts, scores, setScores, allUsers, setAllUsers, comments, setComments, notifications, setNotifications, onViewProfile, messages, setMessages, onLogout }) {
+function AthleteView({ user, workouts, scores, setScores, allUsers, setAllUsers, comments, notifications, onViewProfile, messages, onPostComment, onSendMessage, onMarkConversationRead, onMarkNotificationsRead, onLogout }) {
   const [tab, setTab] = useState("today");
   const unreadMsgs = messages.filter(m => m.toId === user.id && !m.read).length;
-  function switchTab(t) {
+  async function switchTab(t) {
     setTab(t);
     if (t === "notifications") {
-      setNotifications(p => p.map(n => n.userId === user.id ? { ...n, read: true } : n));
+      await onMarkNotificationsRead?.(user.id);
     }
   }
   const [selectedDate, setSelectedDate] = useState(today);
@@ -2135,13 +3260,65 @@ function AthleteView({ user, workouts, scores, setScores, allUsers, setAllUsers,
   const filtered = workouts.filter(w => w.date === selectedDate);
   const myScores = scores.filter(s => s.userId === user.id);
 
-  function handleSaveScore(score) {
-    setScores(ss => {
-      const idx = ss.findIndex(s => s.id === score.id);
-      if (idx >= 0) { const n = [...ss]; n[idx] = score; return n; }
-      return [...ss, score];
-    });
+  async function handleSaveScore(score) {
+  const normalizedIncomingScore = normalizeScore(score);
+  const scoreRow = {
+    workout_id: normalizedIncomingScore.workoutId,
+    user_id: normalizedIncomingScore.userId,
+    score: normalizedIncomingScore.value,
+    rx: normalizedIncomingScore.rx,
+    round_values: normalizedIncomingScore.roundValues,
+    notes: normalizedIncomingScore.notes || "",
+  };
+
+  const existingScoreRow =
+    existingScore ||
+    scores.find(
+      (s) =>
+        s.workout_id === normalizedIncomingScore.workoutId &&
+        s.user_id === normalizedIncomingScore.userId
+    );
+
+  let data, error;
+
+  if (existingScoreRow) {
+    ({ data, error } = await supabase
+      .from("scores")
+      .update(scoreRow)
+      .eq("id", existingScoreRow.id)
+      .select());
+  } else {
+    ({ data, error } = await supabase
+      .from("scores")
+      .insert([scoreRow])
+      .select());
   }
+
+  if (error) {
+    console.error("ERROR SAVING SCORE:", error);
+    return;
+  }
+
+  setScores((ss) => {
+    const savedScore = normalizeScore({
+      ...data[0],
+      rx: normalizedIncomingScore.rx,
+      roundValues: normalizedIncomingScore.roundValues,
+    });
+    const idx = ss.findIndex((s) => s.id === savedScore.id);
+
+    if (idx >= 0) {
+      const next = [...ss];
+      next[idx] = savedScore;
+      return next;
+    }
+
+    return [...ss, savedScore];
+  });
+
+  setScoringWod(null);
+  setExistingScore(null);
+}
 
   const navItems = [
     { id: "today", label: "Workouts" },
@@ -2175,8 +3352,8 @@ function AthleteView({ user, workouts, scores, setScores, allUsers, setAllUsers,
           currentUser={user}
           allUsers={allUsers}
           messages={messages}
-          setMessages={setMessages}
-          setNotifications={setNotifications}
+          onSendMessage={onSendMessage}
+          onMarkConversationRead={onMarkConversationRead}
         />
       ) : (
       <div className="main">
@@ -2203,22 +3380,24 @@ function AthleteView({ user, workouts, scores, setScores, allUsers, setAllUsers,
               <div className="section-title">{selectedDate === today ? "TODAY'S WORKOUTS" : formatDate(selectedDate).toUpperCase()}</div>
             </div>
             {filtered.length === 0 ? (
-              <GorillaEmptyState text="No workouts programmed for this day." />
+              <GorillaEmptyState text="No workouts programmed for today" />
             ) : (
               <div className="workout-grid">
                 {filtered.map(w => (
                   <WorkoutCard
                     key={w.id}
                     workout={w}
-                    scores={scores.filter(s => s.workoutId === w.id)}
+                    scores={scores.filter(s => s.workout_id === w.id)}
                     currentUser={user}
                     allUsers={allUsers}
-                    onLogScore={(wod, existing) => { setScoringWod(wod); setExistingScore(existing || null); }}
+                    onLogScore={(wod, existing) => {
+  setScoringWod(wod);
+  setExistingScore(existing || null);
+}}
                     onEdit={() => {}}
                     onDelete={() => {}}
                     comments={comments}
-                    setComments={setComments}
-                    setNotifications={setNotifications}
+                    onPostComment={onPostComment}
                     onViewProfile={onViewProfile}
                   />
                 ))}
@@ -2236,7 +3415,7 @@ function AthleteView({ user, workouts, scores, setScores, allUsers, setAllUsers,
               const myNotifs = notifications.filter(n => n.userId === user.id);
               return myNotifs.length === 0 ? (
                 <div className="empty">
-                  <div className="empty-icon">🔔</div>
+                  <div className="empty-icon">Alerts</div>
                   <div className="empty-text">No notifications yet.</div>
                 </div>
               ) : (
@@ -2303,39 +3482,69 @@ function AthleteView({ user, workouts, scores, setScores, allUsers, setAllUsers,
 // ── PROFILE PAGE ───────────────────────────────────────────────────────────
 function ProfilePage({ viewUserId, currentUser, allUsers, setAllUsers, scores, workouts, onBack, onLogout }) {
   const isOwn = viewUserId === currentUser.id;
-  const profileUser = allUsers.find(u => u.id === viewUserId) || currentUser;
+  const profileUser = normalizeUser(allUsers.find(u => u.id === viewUserId) || currentUser);
   const [editBio, setEditBio] = useState(false);
   const [bioVal, setBioVal] = useState(profileUser.bio || "");
   const fileRef = useRef();
-  const userScores = scores.filter(s => s.userId === profileUser.id);
+  const userScores = scores.filter(s => s.userId === profileUser.id || s.user_id === profileUser.id);
 
-  function onFile(e) {
+  async function onFile(e) {
     const f = e.target.files[0]; if (!f) return;
     const r = new FileReader();
-    r.onload = ev => setAllUsers(p => p.map(u => u.id === profileUser.id ? { ...u, avatar: ev.target.result } : u));
+    r.onload = async (ev) => {
+      const avatarData = ev.target.result;
+
+      const { error } = await supabase
+        .from("athletes")
+        .update({ avatar_url: avatarData })
+        .eq("id", profileUser.id);
+
+      if (error) {
+        console.error("AVATAR UPDATE ERROR:", error);
+        alert("Avatar update failed. Please try again.");
+        return;
+      }
+
+      setAllUsers((p) =>
+        p.map((u) => (u.id === profileUser.id ? normalizeUser({ ...u, avatar_url: avatarData }) : u))
+      );
+    };
     r.readAsDataURL(f);
+    e.target.value = "";
   }
 
-  function saveBio() {
-    setAllUsers(p => p.map(u => u.id === profileUser.id ? { ...u, bio: bioVal } : u));
+  async function saveBio() {
+    const nextBio = bioVal.trim();
+    const { error } = await supabase
+      .from("athletes")
+      .update({ bio: nextBio })
+      .eq("id", profileUser.id);
+
+    if (error) {
+      console.error("BIO UPDATE ERROR:", error);
+      alert("Bio update failed. Please try again.");
+      return;
+    }
+
+    setAllUsers(p => p.map(u => u.id === profileUser.id ? normalizeUser({ ...u, bio: nextBio }) : u));
     setEditBio(false);
   }
 
-  const updated = allUsers.find(u => u.id === profileUser.id) || profileUser;
+  const updated = normalizeUser(allUsers.find(u => u.id === profileUser.id) || profileUser);
   function ini(name) { return (name || "?").split(" ").map(n => n[0]).join(""); }
 
   return (
     <div className="main">
-      {onBack && <button className="btn-sm" style={{ marginBottom: 20 }} onClick={onBack}>← Back</button>}
+      {onBack && <button className="btn-sm" style={{ marginBottom: 20 }} onClick={onBack}>{"<- Back"}</button>}
       <div className="profile-hero">
         <div className="profile-av-wrap">
           <div className="profile-av">
-            {updated.avatar ? <img src={updated.avatar} alt="" /> : ini(updated.name)}
+            {updated.avatar_url ? <img src={updated.avatar_url} alt="" /> : ini(formatDisplayName(updated))}
           </div>
-          {isOwn && <div className="profile-av-edit" onClick={() => fileRef.current.click()}>✏️</div>}
+          {isOwn && <div className="profile-av-edit" onClick={() => fileRef.current.click()}>Edit</div>}
           <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={onFile} />
         </div>
-        <div className="profile-name">{updated.name}</div>
+        <div className="profile-name">{formatDisplayName(updated)}</div>
         <div className="profile-role">{updated.role}</div>
         {editBio ? (
           <div style={{ maxWidth: 340, margin: "8px auto 0" }}>
@@ -2359,14 +3568,14 @@ function ProfilePage({ viewUserId, currentUser, allUsers, setAllUsers, scores, w
 
       <div className="section-title" style={{ marginBottom: 14 }}>SCORES</div>
       {userScores.length === 0
-        ? <div className="empty"><div className="empty-icon">🏋️</div><div className="empty-text">No scores logged yet.</div></div>
+        ? <div className="empty"><div className="empty-icon">Scores</div><div className="empty-text">No scores logged yet.</div></div>
         : [...userScores].reverse().map(s => {
           const w = workouts.find(w => w.id === s.workoutId);
           return (
             <div key={s.id} className="my-score-row">
               <div style={{ flex: 1 }}>
                 <div className="my-score-wod">{w?.title || "?"}</div>
-                <div style={{ fontSize: 11, color: "var(--sub)" }}>{w?.date} · {w?.type}</div>
+                <div style={{ fontSize: 11, color: "var(--sub)" }}>{w?.date} - {w?.type}</div>
                 {s.notes && <div style={{ fontSize: 11, color: "var(--sub)", fontStyle: "italic", marginTop: 2 }}>{s.notes}</div>}
               </div>
               <div className="my-score-val">{s.value}</div>
@@ -2397,69 +3606,301 @@ function ProfilePage({ viewUserId, currentUser, allUsers, setAllUsers, scores, w
 
 // ── APP ROOT ───────────────────────────────────────────────────────────────
 export default function App() {
-  const [allUsers, setAllUsers] = useState(USERS);
+  const [allUsers, setAllUsers] = useState([]);
   const [user, setUser] = useState(null);
-  const [workouts, setWorkouts] = useState(INITIAL_WORKOUTS);
-  const [scores, setScores] = useState(INITIAL_SCORES);
+  const [workouts, setWorkouts] = useState([]);
+  const [scores, setScores] = useState([]);
   const [comments, setComments] = useState([]);
   const [notifications, setNotifications] = useState([]);
-  const [messages, setMessages] = useState(INITIAL_MESSAGES);
+  const [messages, setMessages] = useState([]);
+  const [appLoaded, setAppLoaded] = useState(false);
   const [showNotifs, setShowNotifs] = useState(false);
   const [profileView, setProfileView] = useState(null); // userId
   const notifRef = useRef();
 
   useEffect(() => {
-    const h = e => { if (notifRef.current && !notifRef.current.contains(e.target)) setShowNotifs(false); };
+    async function loadAppData() {
+      try {
+        const [
+          athletesResult,
+          scoresResult,
+          workoutsResult,
+          commentsResult,
+          notificationsResult,
+          messagesResult,
+        ] = await Promise.all([
+          supabase.from("athletes").select("*"),
+          supabase.from("scores").select("*"),
+          supabase.from("workouts").select("*"),
+          supabase.from("comments").select("*").order("created_at", { ascending: true }),
+          supabase.from("notifications").select("*").order("created_at", { ascending: true }),
+          supabase.from("messages").select("*").order("created_at", { ascending: true }),
+        ]);
+
+        if (!athletesResult.error && athletesResult.data) {
+          setAllUsers(athletesResult.data.map(normalizeUser));
+        }
+
+        if (!scoresResult.error && scoresResult.data) {
+          setScores(scoresResult.data.map(normalizeScore));
+        }
+
+        if (!workoutsResult.error && workoutsResult.data) {
+          setWorkouts(workoutsResult.data.map(normalizeWorkout));
+        }
+
+        if (!commentsResult.error && commentsResult.data) {
+          setComments(commentsResult.data.map(normalizeComment));
+        } else if (commentsResult.error) {
+          console.warn("COMMENTS LOAD ERROR:", commentsResult.error);
+        }
+
+        if (!notificationsResult.error && notificationsResult.data) {
+          setNotifications(notificationsResult.data.map(normalizeNotification));
+        } else if (notificationsResult.error) {
+          console.warn("NOTIFICATIONS LOAD ERROR:", notificationsResult.error);
+        }
+
+        if (!messagesResult.error && messagesResult.data) {
+          setMessages(messagesResult.data.map(normalizeMessage));
+        } else if (messagesResult.error) {
+          console.warn("MESSAGES LOAD ERROR:", messagesResult.error);
+        }
+      } finally {
+        setAppLoaded(true);
+      }
+    }
+
+    loadAppData();
+  }, []);
+
+  useEffect(() => {
+    const h = (e) => {
+      if (notifRef.current && !notifRef.current.contains(e.target)) {
+        setShowNotifs(false);
+      }
+    };
+
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, []);
 
   function openNotifs() {
-    setShowNotifs(v => !v);
-    setNotifications(p => p.map(n => n.userId === user?.id ? { ...n, read: true } : n));
+    setShowNotifs((v) => !v);
+    setNotifications((p) =>
+      p.map((n) => (n.userId === user?.id ? { ...n, read: true } : n))
+    );
   }
 
   function handleLogin(u) {
     // sync in case avatar/bio updated
-    const fresh = allUsers.find(x => x.id === u.id) || u;
+    const fresh = normalizeUser(allUsers.find((x) => x.id === u.id) || u);
     setUser(fresh);
   }
 
-  if (!user) return (
-    <div className="app">
-      <StyleTag />
-      <LoginScreen onLogin={handleLogin} users={allUsers} setUsers={setAllUsers} />
-    </div>
-  );
+  async function createNotification({ userId, text }) {
+    const notificationRow = {
+      user_id: userId,
+      text,
+      read: false,
+    };
 
-  if (profileView) return (
-    <div className="app">
-      <StyleTag />
-      <div ref={notifRef} style={{ position: "relative" }}>
-        <Nav user={user} />
+    const { data, error } = await supabase
+      .from("notifications")
+      .insert([notificationRow])
+      .select()
+      .single();
+
+    if (error) {
+      console.error("ERROR CREATING NOTIFICATION:", error);
+      return false;
+    }
+
+    const savedNotification = normalizeNotification(data);
+    setNotifications((p) => [...p, savedNotification]);
+    return savedNotification;
+  }
+
+  async function handlePostComment({ scoreId, ownerId, authorId, text }) {
+    const commentRow = {
+      score_id: scoreId,
+      author_id: authorId,
+      text,
+    };
+
+    const { data, error } = await supabase
+      .from("comments")
+      .insert([commentRow])
+      .select()
+      .single();
+
+    if (error) {
+      console.error("ERROR SAVING COMMENT:", error);
+      return false;
+    }
+
+    setComments((p) => [...p, normalizeComment(data)]);
+
+    if (ownerId && ownerId !== authorId) {
+      const author = allUsers.find((u) => u.id === authorId || u.user_id === authorId);
+      await createNotification({
+        userId: ownerId,
+        text: `${formatDisplayName(author)} commented on your score`,
+      });
+    }
+
+    return true;
+  }
+
+  async function handleSendMessage({ fromId, toId, text }) {
+    const messageRow = {
+      from_id: fromId,
+      to_id: toId,
+      text,
+      read: false,
+    };
+
+    const { data, error } = await supabase
+      .from("messages")
+      .insert([messageRow])
+      .select()
+      .single();
+
+    if (error) {
+      console.error("ERROR SAVING MESSAGE:", error);
+      return false;
+    }
+
+    setMessages((p) => [...p, normalizeMessage(data)]);
+
+    const sender = allUsers.find((u) => u.id === fromId || u.user_id === fromId);
+    const preview = text.length > 40 ? `${text.slice(0, 40)}...` : text;
+
+    await createNotification({
+      userId: toId,
+      text: `${formatDisplayName(sender)}: ${preview}`,
+    });
+
+    return true;
+  }
+
+  async function handleMarkConversationRead(currentUserId, otherUserId) {
+    setMessages((ms) =>
+      ms.map((m) =>
+        m.fromId === otherUserId && m.toId === currentUserId ? { ...m, read: true } : m
+      )
+    );
+
+    const { error } = await supabase
+      .from("messages")
+      .update({ read: true })
+      .eq("to_id", currentUserId)
+      .eq("from_id", otherUserId)
+      .eq("read", false);
+
+    if (error) {
+      console.error("ERROR MARKING MESSAGES READ:", error);
+    }
+  }
+
+  async function handleMarkNotificationsRead(userId) {
+    setNotifications((p) => p.map((n) => (n.userId === userId ? { ...n, read: true } : n)));
+
+    const { error } = await supabase
+      .from("notifications")
+      .update({ read: true })
+      .eq("user_id", userId)
+      .eq("read", false);
+
+    if (error) {
+      console.error("ERROR MARKING NOTIFICATIONS READ:", error);
+    }
+  }
+
+  if (!appLoaded) {
+    return (
+      <div className="app">
+        <StyleTag />
+        <div className="login-wrap">
+          <div className="login-bg" />
+          <div className="login-card" style={{ zIndex: 1, textAlign: "center" }}>
+            <div className="section-title" style={{ marginBottom: 8 }}>LOADING</div>
+            <div style={{ color: "var(--sub)", fontSize: 13 }}>Loading your gym data...</div>
+          </div>
+        </div>
       </div>
-      <ProfilePage
-        viewUserId={profileView}
-        currentUser={user}
-        allUsers={allUsers}
-        setAllUsers={setAllUsers}
-        scores={scores}
-        workouts={workouts}
-        onBack={() => setProfileView(null)}
-      />
-    </div>
-  );
+    );
+  }
 
-  const sharedProps = { allUsers, setAllUsers, comments, setComments, notifications, setNotifications, onViewProfile: setProfileView, messages, setMessages };
+  if (!user) {
+    return (
+      <div className="app">
+        <StyleTag />
+        <LoginScreen
+          onLogin={handleLogin}
+          users={allUsers}
+          setUsers={setAllUsers}
+        />
+      </div>
+    );
+  }
+
+  if (profileView) {
+    return (
+      <div className="app">
+        <StyleTag />
+        <div ref={notifRef} style={{ position: "relative" }}>
+          <Nav user={user} />
+        </div>
+        <ProfilePage
+          viewUserId={profileView}
+          currentUser={user}
+          allUsers={allUsers}
+          setAllUsers={setAllUsers}
+          scores={scores}
+          workouts={workouts}
+          onBack={() => setProfileView(null)}
+        />
+      </div>
+    );
+  }
+
+  const sharedProps = {
+    allUsers,
+    setAllUsers,
+    comments,
+    notifications,
+    onViewProfile: setProfileView,
+    messages,
+    onPostComment: handlePostComment,
+    onSendMessage: handleSendMessage,
+    onMarkConversationRead: handleMarkConversationRead,
+    onMarkNotificationsRead: handleMarkNotificationsRead,
+  };
 
   return (
     <div className="app">
       <StyleTag />
       <Nav user={user} onLogout={null} />
       {user.role === "coach" ? (
-        <CoachView user={user} workouts={workouts} scores={scores} setWorkouts={setWorkouts} setScores={setScores} onLogout={() => setUser(null)} {...sharedProps} />
+        <CoachView
+          user={user}
+          workouts={workouts}
+          scores={scores}
+          setWorkouts={setWorkouts}
+          setScores={setScores}
+          onLogout={() => setUser(null)}
+          {...sharedProps}
+        />
       ) : (
-        <AthleteView user={user} workouts={workouts} scores={scores} setScores={setScores} onLogout={() => setUser(null)} {...sharedProps} />
+        <AthleteView
+          user={user}
+          workouts={workouts}
+          scores={scores}
+          setScores={setScores}
+          onLogout={() => setUser(null)}
+          {...sharedProps}
+        />
       )}
     </div>
   );
